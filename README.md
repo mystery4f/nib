@@ -1,8 +1,12 @@
 # Nib
 
 A small markdown editor for one job: being pi's `$EDITOR`. It opens the file you
-give it, shows the source beside the rendered document, and on close tells pi —
-through its exit code — whether the edit was saved or thrown away.
+give it, shows the document rendered, and on close tells pi — through its exit
+code — whether the edit was saved or thrown away.
+
+Text is edited where it draws: the block under the caret turns back into its
+Markdown source and everything around it stays rendered. The source/preview
+split of v1 is still one key away.
 
 No new-file flow, no tabs, no open dialog. One path in, one exit code out.
 
@@ -20,6 +24,11 @@ go build -o nib.exe .
 version resource; it needs the CLI's own dependencies in the module graph, so it
 is worth running only once the app has an icon to show.
 
+`go.mod` replaces `github.com/dyike/keel` with a local Keel worktree
+(`../keel-learning/keel`, branch `nib-source-ranges`). Block-granular editing
+needs `Doc.SourceRanges()`, which is not released upstream yet; the replace is
+the pinned dependency until it is.
+
 ## Use with pi
 
 ```sh
@@ -36,7 +45,8 @@ the file only when Nib exits `0`.
 | `ctrl+s` | save, stay open |
 | `ctrl+enter` | save and close |
 | `ctrl+q` | close (asks first when there are unsaved changes) |
-| `f9` | toggle the source/preview split |
+| `esc` | close the block being edited (in the rendered view) |
+| `f9` | cycle the view: rendered → split → source |
 
 ## Exit codes
 
@@ -56,9 +66,12 @@ you want to be asked — see `docs/adr/0003-close-button-discards-dirty-work.md`
 - `internal/app` — the state machine (`App`, `Command`, `View`), no UI
 - `internal/document` — load, dirty tracking, atomic save
 - `internal/preview` — the refresh policy (idle debounce, forced on save)
-- `internal/ui` — Keel projection of the app's view
+- `internal/blocks` — Keel's source ranges, and the byte-range edits over them
+- `internal/ui` — Keel projection of the app's view: the three views and the
+  block editor
 - `internal/niblog` — the log file, since the GUI build has no console
-- `docs/specs/nib-v1.md` — what v1 promises
+- `docs/specs/nib-v1.md`, `docs/specs/nib-v2-render-mode.md` — what each version
+  promises
 - `docs/adr/` — decisions behind it
 - `GLOSSARY.md` — the words this project uses
 

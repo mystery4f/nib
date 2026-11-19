@@ -31,6 +31,18 @@ _Avoid_: action, event, message
 The rendered markdown, always a projection of the source and never an input surface. It may lag the source by the refresh policy; it never becomes the source of truth.
 _Avoid_: rich text view, WYSIWYG pane, output
 
+**Block**:
+A contiguous byte range of the source that Markdown parses as one top-level construct — a paragraph, heading, list, quote, table, fenced code block, and so on. Ranges tile the whole document with no gaps, and Keel reports them, so Nib never guesses a boundary.
+_Avoid_: chunk, node, element, section
+
+**Active block**:
+The one block shown as Markdown source instead of its rendering, and the only place typing goes in the rendered view. It stays active until another block is clicked or `esc` closes it.
+_Avoid_: focused block, edited block, selection
+
+**View**:
+Which of the three projections the window is showing: rendered (blocks, one of them active), split (source beside preview), or source. A view changes what is drawn, never the document.
+_Avoid_: mode, layout, tab
+
 **Refresh policy**:
 The rule that decides whether a pending edit is due to be rendered: idle past the debounce, or forced by save. Deliberately separate from rendering itself.
 _Avoid_: debounce, throttle, autosave
