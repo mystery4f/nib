@@ -11,6 +11,7 @@ import (
 	"github.com/dyike/keel/ui/markdown"
 
 	"github.com/mystery4f/nib/internal/app"
+	"github.com/mystery4f/nib/internal/blocks"
 	"github.com/mystery4f/nib/internal/preview"
 )
 
@@ -21,6 +22,19 @@ type Logger interface {
 	Path() string
 }
 
+// mode is which of the three views the window shows.
+type mode int
+
+const (
+	// modeRendered shows the document as it renders; the block under the last
+	// click is the only editable one.
+	modeRendered mode = iota
+	// modeSplit shows the source beside the rendered document.
+	modeSplit
+	// modeSource shows the source alone.
+	modeSource
+)
+
 // previewKey carries the edit version, so a keystroke restarts the debounce
 // timer: Keel cancels a timer that a frame stops declaring.
 type previewKey struct{ edited uint64 }
@@ -28,14 +42,26 @@ type previewKey struct{ edited uint64 }
 // Session is the window content and the only place the app meets Keel.
 type Session struct {
 	app    *app.App
-	editor *kit.CodeEditorView
-	doc    *markdown.Doc
+	editor *kit.CodeEditorView // source pane, and the only editor in source mode
+	doc    *markdown.Doc       // rendered document for the split view
+
+	mode mode
+
+	// The active block owns [activeStart, activeEnd) of the source and is shown
+	// as an editor instead of its rendered form. Its start is fixed while it is
+	// active, so an edit never has to move the caret.
+	active                 *kit.CodeEditorView
+	activeStart, activeEnd int
+
+	sliced   []blocks.Block
+	sliceKey string
+	docs     []*markdown.Doc
+	docsKey  string
 
 	edited   uint64
 	rendered uint64
 	lastEdit time.Time
 	forced   bool
-	split    bool
 
 	exit    func(int)
 	log     Logger
@@ -45,7 +71,7 @@ type Session struct {
 // New wires the editor to the session. exit is the only way out of the process.
 func New(a *app.App, log Logger, exit func(int)) *Session {
 	v := a.View()
-	s := &Session{app: a, doc: markdown.New(v.Text), split: true, exit: exit, log: log, logPath: log.Path()}
+	s := &Session{app: a, doc: markdown.New(v.Text), mode: modeRendered, exit: exit, log: log, logPath: log.Path()}
 	s.editor = kit.CodeEditor(v.Text).
 		Language("markdown").
 		Name(filepath.Base(v.Path)).
@@ -54,6 +80,7 @@ func New(a *app.App, log Logger, exit func(int)) *Session {
 		SoftWrap(true).
 		OnChange(s.textChanged)
 	s.editor.Focus()
+	s.activate(len(v.Text)) // the document opens ready to type at its end
 	return s
 }
 
@@ -100,15 +127,31 @@ func (s *Session) dispatch(kind app.Kind) {
 	}
 }
 
-func (s *Session) togglePane() { s.split = !s.split }
+// cycleView moves to the next view: rendered, split, source.
+func (s *Session) cycleView() {
+	s.deactivate()
+	switch s.mode {
+	case modeRendered:
+		s.mode = modeSplit
+		s.editor.SetValue(s.app.View().Text)
+		s.editor.Focus()
+	case modeSplit:
+		s.mode = modeSource
+	default:
+		s.mode = modeRendered
+	}
+}
 
 func (s *Session) bindKeys(cx *el.Context, v app.View) {
 	cx.Shortcut("mod+s", func() { s.dispatch(app.Save) })
 	cx.Shortcut("mod+enter", func() { s.dispatch(app.SaveAndQuit) })
 	cx.Shortcut("mod+q", func() { s.dispatch(app.Quit) })
-	cx.Shortcut("f9", s.togglePane)
-	if v.Confirming {
+	cx.Shortcut("f9", s.cycleView)
+	switch {
+	case v.Confirming:
 		cx.Shortcut("esc", func() { s.dispatch(app.ReturnToEditing) })
+	case s.active != nil:
+		cx.Shortcut("esc", s.deactivate)
 	}
 }
 

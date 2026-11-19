@@ -20,21 +20,26 @@ func (s *Session) header(cx *el.Context, v app.View) el.Element {
 		el.Text(filepath.Base(v.Path)).TextSize(theme.TextSm).Bold(),
 		el.Text(modifiedMark(v)).TextSize(theme.TextSm).TextColor(theme.Muted),
 		el.Div().Grow(),
-		kit.Button(paneLabel(s.split), s.togglePane).Render(cx),
+		kit.Button(s.viewLabel(), s.cycleView).Render(cx),
 	)
 }
 
-// panes shows the source beside the rendered document, or the source alone.
+// panes draws the view the session is in.
 func (s *Session) panes(cx *el.Context, v app.View) el.Element {
-	source := el.Div().Grow().Child(s.editor.Render(cx))
-	if !s.split {
-		return el.Div().Grow().Row().Items(el.Stretch).Child(source)
+	switch s.mode {
+	case modeRendered:
+		return s.renderedPane(cx, v)
+	case modeSource:
+		return el.Div().Grow().Row().Items(el.Stretch).Child(
+			el.Div().Grow().Child(s.editor.Render(cx)),
+		)
+	default:
+		return el.Div().Grow().Row().Items(el.Stretch).Child(
+			el.Div().Grow().Child(s.editor.Render(cx)),
+			el.Div().W(el.Dp(1)).Bg(theme.Border),
+			el.Div().Grow().ScrollY().P(20).Child(s.doc.Render(cx)),
+		)
 	}
-	return el.Div().Grow().Row().Items(el.Stretch).Child(
-		source,
-		el.Div().W(el.Dp(1)).Bg(theme.Border),
-		el.Div().Grow().ScrollY().P(20).Child(s.doc.Render(cx)),
-	)
 }
 
 // conclude stacks the confirmation bar over the status bar.
@@ -60,10 +65,11 @@ func (s *Session) confirmationBar(cx *el.Context) el.Element {
 func (s *Session) statusBar(v app.View) el.Element {
 	return el.Div().Row().Items(el.Center).Gap(16).Px(16).Py(6).Bg(theme.Surface).Child(
 		el.Text(metrics(v.Text)).TextSize(theme.TextXs).TextColor(theme.Muted),
+		el.Text(s.blockHint(v)).TextSize(theme.TextXs).TextColor(theme.Muted),
 		el.Div().Grow(),
 		el.Text(v.Notice).TextSize(theme.TextXs).TextColor(theme.Muted),
 		el.Text("log "+s.logPath).TextSize(theme.TextXs).TextColor(theme.Muted),
-		el.Text("Ctrl+S save · Ctrl+Enter save & close · Ctrl+Q close · F9 pane").
+		el.Text("Ctrl+S save · Ctrl+Enter save & close · Ctrl+Q close · F9 view").
 			TextSize(theme.TextXs).TextColor(theme.Muted),
 	)
 }
@@ -73,13 +79,6 @@ func modifiedMark(v app.View) string {
 		return ""
 	}
 	return "● unsaved"
-}
-
-func paneLabel(split bool) string {
-	if split {
-		return "Source only"
-	}
-	return "Split view"
 }
 
 func metrics(text string) string {
