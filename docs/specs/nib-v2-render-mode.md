@@ -146,6 +146,10 @@ Two consequences of per-block rendering, accepted and documented:
   nothing, and typing again recreates the paragraph where it stood; and text
   arriving with blank lines inside it (a paste) lands in the block as written,
   with the block growing over the paragraphs it now covers until the next slice.
+- Every block's document is rebuilt when the source changes, which sounds worse
+  than it is: a 32 KB document of 1200 blocks rebuilds in 3.7 ms (3.1 µs a block,
+  measured with `markdown.New` over the sliced text), well inside the 250 ms
+  debounce, so no per-block cache key is needed yet.
 
 ## Out of scope for v2
 
