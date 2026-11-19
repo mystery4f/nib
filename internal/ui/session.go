@@ -56,6 +56,9 @@ type Session struct {
 	// text without them so the caret crosses into the next block on the first
 	// try; every edit puts them back unchanged.
 	activeLead, activeTrail string
+	// activeKind is the block's Markdown kind, and activeBody the text the
+	// editor holds without those edges; Enter compares against it.
+	activeKind, activeBody string
 
 	sliced   []blocks.Block
 	sliceKey string

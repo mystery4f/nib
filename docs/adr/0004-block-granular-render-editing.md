@@ -75,3 +75,32 @@ re-renders a candidate span with the document's definitions before showing it,
 because synthesized text (footnote markers, `$$` wrappers, rendered image alt)
 has no source of its own. Recorded here so the option is not rediscovered from
 scratch: a measured day or two, not an afternoon.
+
+## A newline in a paragraph opens the next block
+
+Revealing a whole block made one thing worse than the reference product: the
+block under the caret is also the block that grows, so typing `#` three times
+then Enter, or writing a long paragraph, turns that whole block into a source
+editor and pushes everything else off the screen. Typora never shows a growing
+source region — pressing Enter ends the paragraph and the next one starts empty.
+
+So a newline inside a paragraph or a heading now splits the block at the caret:
+the text before is written back and stays rendered, the text after becomes the
+new active block with the caret at its start. The insertion is `"\n\n"` because
+two blocks need a blank line between them to parse as two blocks; without it the
+saved file would be one paragraph with a soft break, and the block boundaries
+would come back merged on the next slice.
+
+The trigger is the text, not the key: an edit whose length grew by exactly one
+and whose new character is `\n` is a newline, which needs no key interception and
+keeps working when the text arrives from a paste of one character. Lists, quotes,
+fenced code and tables keep the newline as content — a new list item, a new code
+line — because there a newline is part of the block, and splitting would make it
+impossible to type a second item at all.
+
+The copy of the block that the editor holds is now only a body plus the blank
+edges it arrived with; the edges are re-attached on every write, so a split or an
+edit never eats the blank lines that separate blocks. And because a code block
+can still legitimately grow taller than the window, the editor view is capped at
+the window height and scrolls inside itself instead of pushing the document
+scrollbar — the caret stays visible either way.

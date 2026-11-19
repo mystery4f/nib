@@ -100,8 +100,17 @@ func (s *Session) activateAt(offset int, atStart bool) {
 	if i := blocks.IndexAt(bs, start); i >= 0 {
 		kind = bs[i].Kind
 	}
-	s.activeStart, s.activeEnd = start, end
+	s.openBlock(start, end, kind, atStart)
+}
+
+// openBlock shows [start, end) of the source as the block being edited. The
+// range is passed in rather than looked up because a paragraph broken off by
+// Enter is an empty range with no parsed block of its own.
+func (s *Session) openBlock(start, end int, kind string, atStart bool) {
+	v := s.app.View()
 	lead, body, trail := blocks.SplitBlankEdges(v.Text[start:end])
+	s.activeStart, s.activeEnd = start, end
+	s.activeKind, s.activeBody = kind, body
 	s.activeLead, s.activeTrail = lead, trail
 	s.active = kit.CodeEditor(body).
 		Language("markdown").
@@ -155,6 +164,7 @@ func caretAtEnd(text string) (line, col int) {
 func (s *Session) deactivate() {
 	s.active, s.activeStart, s.activeEnd = nil, 0, 0
 	s.activeLead, s.activeTrail = "", ""
+	s.activeKind, s.activeBody = "", ""
 }
 
 // blockChanged writes the block's text back into the document. The block's
@@ -164,11 +174,58 @@ func (s *Session) blockChanged(text string) {
 	if s.active == nil {
 		return
 	}
+	previous := s.activeBody
+	s.activeBody = text
+	if at, ok := newlineInserted(previous, text); ok && s.breaksParagraph() {
+		s.breakBlockAt(at)
+		return
+	}
+	s.writeBlock(text)
+}
+
+// writeBlock puts the editor's text back into the source, blank edges included.
+func (s *Session) writeBlock(text string) {
 	text = s.activeLead + text + s.activeTrail
 	s.app.Handle(app.Edit(blocks.Replace(s.app.View().Text, s.activeStart, s.activeEnd, text)))
 	s.activeEnd = s.activeStart + len(text)
 	s.edited++
 	s.lastEdit = time.Now()
+}
+
+// breaksParagraph reports whether Enter in this block starts a new block rather
+// than adding another line: a paragraph or a heading ends, a list item, a quote,
+// a code block and a table keep their own newlines.
+func (s *Session) breaksParagraph() bool {
+	return s.activeKind == "paragraph" || s.activeKind == "heading" || s.activeKind == "document"
+}
+
+// breakBlockAt closes the paragraph at at, splitting the block in two: what is
+// before stays, a blank line follows it, and what is after becomes the block
+// being edited with the caret at its start.
+func (s *Session) breakBlockAt(at int) {
+	before, after := s.activeBody[:at-1], s.activeBody[at:]
+	replacement := s.activeLead + before + "\n\n" + after + s.activeTrail
+	s.app.Handle(app.Edit(blocks.Replace(s.app.View().Text, s.activeStart, s.activeEnd, replacement)))
+	s.edited++
+	s.lastEdit = time.Now()
+	start := s.activeStart + len(s.activeLead) + len(before) + 2
+	s.openBlock(start, start+len(after), "paragraph", true)
+}
+
+// newlineInserted reports the offset just past a newline that prev and next
+// differ by, which is how a single Enter shows up in an editor's text.
+func newlineInserted(prev, next string) (int, bool) {
+	if len(next) != len(prev)+1 {
+		return 0, false
+	}
+	i := 0
+	for i < len(prev) && prev[i] == next[i] {
+		i++
+	}
+	if i >= len(next) || next[i] != '\n' {
+		return 0, false
+	}
+	return i + 1, true
 }
 
 // documentBlocks slices the source, remembering the last result: a frame that

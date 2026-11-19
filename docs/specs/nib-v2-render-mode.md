@@ -44,6 +44,14 @@ active block's `CodeEditor` is a window onto a byte range of it.
 - The blank lines a block slice carries at its edges are cut from the editor's
   value and put back on every edit, so the first `↓` at the block's last line
   crosses instead of walking through empty rows.
+- In a paragraph or a heading a newline splits the block where the user typed it:
+  the text before stays rendered, the text after becomes the new active block.
+  That keeps the active block one paragraph long however long the user types, so
+  the surrounding text keeps rendering. Lists, quotes, fenced code and tables
+  take the newline literally instead — a list item continues inside its own
+  block, a code block grows a line — because a newline there is content, not a
+  block boundary. The editor view is capped at the window height, so a block
+  that does grow keeps its caret on screen by scrolling inside itself.
 
 ## Blocks
 
@@ -119,6 +127,10 @@ Two consequences of per-block rendering, accepted and documented:
   table above with the caret at its end, `↓` brings it back with the caret at the
   block's start (typed text proves the caret), and `↑` on the first block stays
   put.
+  The same run presses Enter inside a paragraph: the paragraph turns rendered,
+  a new empty block appears below and takes the typing, and the saved bytes are
+  the two paragraphs separated by one blank line; pressing Enter in a list and in
+  a fenced code block leaves both in one active block.
 
 ## Out of scope for v2
 
