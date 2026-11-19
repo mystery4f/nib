@@ -295,6 +295,11 @@ func (s *Session) documentBlocks(text string) []blocks.Block {
 // blockDocuments renders every block on its own. The document's link-reference
 // definitions are prefixed onto each, or a block using [label] would render as
 // literal text.
+// blockDocuments renders every block on its own. The document's link-reference
+// definitions are prefixed onto each, or a block using [label] would render as
+// literal text. Front matter is hidden by default — it is metadata, not prose —
+// so a document whose first block is metadata keeps it off screen; here it is
+// the block being shown, so it asks for the key table.
 func (s *Session) blockDocuments(text string, bs []blocks.Block) []*markdown.Doc {
 	if s.docsKey == text && len(s.docs) == len(bs) {
 		return s.docs
@@ -303,6 +308,9 @@ func (s *Session) blockDocuments(text string, bs []blocks.Block) []*markdown.Doc
 	docs := make([]*markdown.Doc, len(bs))
 	for i, b := range bs {
 		docs[i] = markdown.New(defs + text[b.Start:b.End])
+		if b.Kind == "front-matter" {
+			docs[i].ShowFrontMatter(true)
+		}
 	}
 	s.docs, s.docsKey = docs, text
 	return docs

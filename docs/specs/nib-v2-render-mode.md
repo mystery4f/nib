@@ -102,6 +102,11 @@ does not read as a definition, and then renders that line as visible text at the
 top of every other block. The malformed line stays an ordinary paragraph block
 instead, which is what the source says.
 
+A leading front matter block is shown as Keel's key table rather than hidden the
+way a whole document hides it: it is a block of this document like any other, and
+metadata the user cannot see is metadata they cannot fix. Clicking it opens the
+YAML itself, `---` lines included.
+
 Two consequences of per-block rendering, accepted and documented:
 
 - **Footnotes degrade.** `[^1]` references render as literal text in render
@@ -134,6 +139,13 @@ Two consequences of per-block rendering, accepted and documented:
   a new empty block appears below and takes the typing, and the saved bytes are
   the two paragraphs separated by one blank line; pressing Enter in a list and in
   a fenced code block leaves both in one active block.
+  Three more edges are driven the same way, because they are the ones a user hits
+  by accident: `ctrl+z` inside a block takes the edit back and the document
+  follows it, so undo is the editor's own and needs nothing from the session;
+  selecting a block's text and deleting it leaves an empty block that writes
+  nothing, and typing again recreates the paragraph where it stood; and text
+  arriving with blank lines inside it (a paste) lands in the block as written,
+  with the block growing over the paragraphs it now covers until the next slice.
 
 ## Out of scope for v2
 

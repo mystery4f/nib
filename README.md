@@ -27,7 +27,16 @@ is worth running only once the app has an icon to show.
 `go.mod` replaces `github.com/dyike/keel` with a local Keel worktree
 (`../keel-learning/keel`, branch `nib-source-ranges`). Block-granular editing
 needs `Doc.SourceRanges()`, which is not released upstream yet; the replace is
-the pinned dependency until it is.
+the pinned dependency until it is. That worktree is edited by hand, so a build
+can catch it mid-change: to build against a known-good commit instead, export it
+and point the replace at the copy —
+
+```sh
+git -C ../keel-learning/keel archive 83d1186 | tar -x -C .tmp/keel-pin
+go mod edit -replace github.com/dyike/keel=./.tmp/keel-pin
+```
+
+The copy lives under `.tmp/`, which is ignored; restore the replace afterwards.
 
 ## Use with pi
 
