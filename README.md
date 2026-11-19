@@ -9,15 +9,16 @@ No new-file flow, no tabs, no open dialog. One path in, one exit code out.
 ## Build
 
 ```sh
+# the build pi should run: GUI subsystem, so no console beside the editor
+go build -ldflags "-H=windowsgui" -o nib.exe .
+
+# a console build, for watching panics and exit codes while developing
 go build -o nib.exe .
 ```
 
-On Windows, `keel build` adds the GUI subsystem flags, so no console window
-appears next to the editor (the build `keel` ships does this for you):
-
-```sh
-go run github.com/dyike/keel/cmd/keel build
-```
+`keel build` produces the same thing and additionally stamps an icon and a
+version resource; it needs the CLI's own dependencies in the module graph, so it
+is worth running only once the app has an icon to show.
 
 ## Use with pi
 
