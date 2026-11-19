@@ -50,9 +50,12 @@ func (s *Session) renderedPane(cx *el.Context, v app.View) el.Element {
 }
 
 // blockEditor renders the active block as source. Its height follows the number
-// of lines: it sits inside the document's own scroll, so it must not fill.
+// of lines: it sits inside the document's own scroll, so it must not fill. A
+// block taller than the window is capped there instead, so the editor scrolls
+// itself to the caret rather than growing past the bottom of the screen.
 func (s *Session) blockEditor(cx *el.Context) el.Element {
-	s.active.Height(blockHeight(s.active.Lines()))
+	_, window := cx.ViewportSize()
+	s.active.Height(blockHeight(s.active.Lines(), window))
 	root := el.Div().WFull().Child(s.active.Render(cx))
 	if s.focusArmed {
 		s.focusArmed, s.focusNext = false, true
@@ -63,11 +66,17 @@ func (s *Session) blockEditor(cx *el.Context) el.Element {
 // blockHeight is how tall an editor over lines lines has to be to show all of
 // them: Keel's editor draws a row at 1.5 times the body text size, plus its own
 // top and bottom padding.
-func blockHeight(lines int) float32 {
+func blockHeight(lines int, window float32) float32 {
 	if lines < 1 {
 		lines = 1
 	}
-	return float32(lines)*theme.TextMd*1.5 + 10
+	height := float32(lines)*theme.TextMd*1.5 + 10
+	// Leave the header and the status bar on screen: the caret has to stay
+	// visible while the block is being typed, however long it gets.
+	if limit := window - 140; height > limit {
+		height = max(limit, 120)
+	}
+	return height
 }
 
 // activate opens the block holding offset as source, caret at its end.
