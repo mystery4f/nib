@@ -25,14 +25,23 @@ version resource; it needs the CLI's own dependencies in the module graph, so it
 is worth running only once the app has an icon to show.
 
 `go.mod` replaces `github.com/dyike/keel` with a local Keel worktree
-(`../keel-learning/keel`, branch `nib-source-ranges`). Block-granular editing
-needs `Doc.SourceRanges()`, which is not released upstream yet; the replace is
-the pinned dependency until it is. That worktree is edited by hand, so a build
-can catch it mid-change: to build against a known-good commit instead, export it
-and point the replace at the copy —
+(`../keel-learning/keel`, branch `nib-source-ranges`), because block-granular
+editing needs `Doc.SourceRanges()`, `Doc.ShowFrontMatter()` and
+`CodeEditor.OnBoundary`, none of which is released upstream yet. Without that
+worktree next to the repository, point the replace at the published fork
+instead:
 
 ```sh
-git -C ../keel-learning/keel archive 83d1186 | tar -x -C .tmp/keel-pin
+go mod edit -replace github.com/dyike/keel=github.com/mystery4f/keel@nib-source-ranges
+go mod tidy
+```
+
+The fork branch carries the same commits. When the worktree is being edited by
+hand, a build can catch it mid-change; to build against a known-good commit,
+export it and point the replace at the copy —
+
+```sh
+git -C ../keel-learning/keel archive 8ad838c | tar -x -C .tmp/keel-pin
 go mod edit -replace github.com/dyike/keel=./.tmp/keel-pin
 ```
 
