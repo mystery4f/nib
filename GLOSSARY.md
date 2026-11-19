@@ -36,19 +36,11 @@ A contiguous byte range of the source that Markdown parses as one top-level cons
 _Avoid_: chunk, node, element, section
 
 **Active block**:
-The one block shown as Markdown source instead of its rendering, one of the places typing goes in the rendered view. It stays active until another block is clicked or `esc` closes it.
+The one block shown as Markdown source instead of its rendering, and the only place typing goes in the rendered view. It stays active until another block is clicked or `esc` closes it.
 _Avoid_: focused block, edited block, selection
 
-**Span**:
-One inline stretch of a paragraph or a heading as Keel reports it — plain text, an emphasis, a strong phrase, a code span, a link, a footnote reference — carrying its source byte range and whether its rendered text is synthetic. An inline span is the smallest thing Nib edits in place.
-_Avoid_: run, token, fragment, piece
-
-**Active span**:
-The single inline span shown as Markdown source inside the still-rendered rest of its block, and the other place typing goes. It is accepted by `enter`, reverted by `esc`, and every other action — clicking another span, a view switch, a save, a quit — commits it first.
-_Avoid_: inline editor, popover, input
-
 **View**:
-Which of the three projections the window is showing: rendered (blocks, one span or block of them active), split (source beside preview), or source. A view changes what is drawn, never the document.
+Which of the three projections the window is showing: rendered (blocks, one of them active), split (source beside preview), or source. A view changes what is drawn, never the document.
 _Avoid_: mode, layout, tab
 
 **Refresh policy**:

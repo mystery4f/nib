@@ -42,18 +42,7 @@ func (s *Session) renderedPane(cx *el.Context, v app.View) el.Element {
 			placed = true
 		}
 		start := b.Start
-		body := docs[i]
-		if s.span != nil && s.span.blockStart == start {
-			body = s.spanDocument(v.Text, b)
-		}
-		// A paragraph or a heading reports its inline spans, so its own text
-		// decides what opens; a code block, a table, a quote or a list has no
-		// spans and opens whole.
-		row := el.Div().WFull()
-		if b.Kind != "paragraph" && b.Kind != "heading" {
-			row.OnClick(func() { s.activate(start) })
-		}
-		page.Child(row.Child(body.Render(cx)))
+		page.Child(el.Div().WFull().OnClick(func() { s.activate(start) }).Child(docs[i].Render(cx)))
 	}
 	if !placed {
 		page.Child(s.blockEditor(cx))
@@ -98,7 +87,6 @@ func (s *Session) activate(offset int) { s.activateAt(offset, false) }
 // before the block's first character instead of after its last, which is where
 // a caret arriving from above belongs.
 func (s *Session) activateAt(offset int, atStart bool) {
-	s.closeSpan()
 	v := s.app.View()
 	bs := s.documentBlocks(v.Text)
 	start, end := 0, len(v.Text)
@@ -320,7 +308,6 @@ func (s *Session) blockDocuments(text string, bs []blocks.Block) []*markdown.Doc
 	docs := make([]*markdown.Doc, len(bs))
 	for i, b := range bs {
 		docs[i] = markdown.New(defs + text[b.Start:b.End])
-		docs[i].OnSpanClick(func(_, k int) { s.spanClicked(i, k) })
 		if b.Kind == "front-matter" {
 			docs[i].ShowFrontMatter(true)
 		}

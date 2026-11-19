@@ -62,9 +62,6 @@ type Session struct {
 	// suppress silences the editor's change callback while the session rewrites
 	// the editor's own value, as it does when Enter starts a new list item.
 	suppress bool
-	// span is the one inline span opened for editing in place; nil when the
-	// document is only rendered or a whole block is open.
-	span *spanEdit
 
 	sliced   []blocks.Block
 	sliceKey string
@@ -144,7 +141,6 @@ func (s *Session) textChanged(text string) {
 }
 
 func (s *Session) dispatch(kind app.Kind) {
-	s.closeSpan()
 	s.app.Handle(app.Command{Kind: kind})
 	if kind == app.Save {
 		s.forced = true
@@ -157,7 +153,6 @@ func (s *Session) dispatch(kind app.Kind) {
 
 // cycleView moves to the next view: rendered, split, source.
 func (s *Session) cycleView() {
-	s.closeSpan()
 	s.deactivate()
 	switch s.mode {
 	case modeRendered:
@@ -179,8 +174,6 @@ func (s *Session) bindKeys(cx *el.Context, v app.View) {
 	switch {
 	case v.Confirming:
 		cx.Shortcut("esc", func() { s.dispatch(app.ReturnToEditing) })
-	case s.span != nil:
-		cx.Shortcut("esc", s.closeSpan)
 	case s.active != nil:
 		cx.Shortcut("esc", s.deactivate)
 	}
