@@ -107,14 +107,36 @@ way a whole document hides it: it is a block of this document like any other, an
 metadata the user cannot see is metadata they cannot fix. Clicking it opens the
 YAML itself, `---` lines included.
 
+A paragraph or a heading carries inline spans, and those are edited in place too.
+Clicking a span replaces just it with a small input holding the span's
+Markdown, inside the still-rendered rest of the block. `enter` accepts the
+input and commits the edit, `esc` reverts it; a footnote reference is not
+opened as text, and a plain text run long enough that a single-line input
+would hide most of it falls back to opening its whole block instead, caret at
+the span's start. Emphases, strong phrases, code spans and links stay inline.
+
+The span input is an `el.Input` embedded into the block's document through
+Keel's inline plugin (`Plugin.Inlines`, Keel commit `b6c9ccc`): the plugin
+factory swaps the span's node for `InlineObject{Text, Widget}` with the input as
+the widget. The factory answers for the node whose source interior — markers
+included — holds the span exactly, so overlapping spans nest correctly and a
+span reopened later still maps to the same node. The input's draft is bound
+directly (`el.Input().Bind`), which is what feeds keystrokes back in; the
+document the block renders from is parsed once when the span opens and stays
+frozen while it types, so the span keeps matching and the caret never jumps.
+Saving, quitting, switching views or opening another span commits the draft
+first. The input re-asks for focus on every frame, because the click that
+opened the span leaves the keyboard with the block's own selection handler.
+
 Two consequences of per-block rendering, accepted and documented:
 
 - **Footnotes degrade.** `[^1]` references render as literal text in render
   mode, because footnote numbering is document-level. The source is always one
   click away, and the split view shows the real rendering.
-- **A block is the largest editable unit.** Inline formatting is not editable in
-  place: the caret lives in a source editor, not in rendered glyphs. See ADR
-  0004 for why that is a boundary of the framework, not a shortcut.
+- **Synthetic spans and long prose fall back to their block.** A footnote
+  marker cannot be edited as text, and a whole sentence is revealed as its
+  block rather than as one line of a single-line input. Neither is a feature
+  gap: the source is still one click deep.
 
 ## Testing
 
@@ -139,6 +161,10 @@ Two consequences of per-block rendering, accepted and documented:
   a new empty block appears below and takes the typing, and the saved bytes are
   the two paragraphs separated by one blank line; pressing Enter in a list and in
   a fenced code block leaves both in one active block.
+  A span run does the same: click the strong span, type over it, press `enter`,
+  assert the saved bytes carry the new word with the `**` pair around it; click
+  the link span, type a new label and URL, press `esc`, assert the file is
+  untouched and the rest of the paragraph rendered on.
   Three more edges are driven the same way, because they are the ones a user hits
   by accident: `ctrl+z` inside a block takes the edit back and the document
   follows it, so undo is the editor's own and needs nothing from the session;
@@ -153,5 +179,8 @@ Two consequences of per-block rendering, accepted and documented:
 
 ## Out of scope for v2
 
-Inline (character-level) editing inside rendered text, scroll position memory per
-mode, table cell editing, drag to move blocks, and multi-block selection.
+Character-level rendering of inline glyphs (editing inside an emphasis with the
+pair of `*` staying off keyboard), scroll position memory per mode, table cell
+editing, drag to move blocks, and multi-block selection. The spans themselves
+are single inputs; there is no in-place object editor for images, math or
+HTML.

@@ -113,3 +113,32 @@ a newline in the middle is somebody editing an existing item. The session rewrit
 the editor's own value for this, so the change callback is muted while it does; a
 muted callback cannot mistake its own rewrite for a keystroke and open another
 item.
+
+## Inline spans are editable in place
+
+The paragraph split made the block under the caret stay one paragraph long, but
+a block is still a lot more text than Typora bares: the whole paragraph turns to
+source. Keel did gain the missing primitive — `Doc.SourceSpans(i)`,
+`Doc.SpanEditable(i, k)` and `Doc.OnSpanClick(func(block, span int))` in commit
+`b6c9ccc` — so a click on a span now opens just it: an `el.Input` holding the
+span's Markdown, embedded where the span renders through Keel's inline plugin
+(`Plugin.Inlines`, `InlineObject{Text, Widget}`).
+
+The span's bytes come from Keel's own parse, not from a rendered frame, and
+overlap (a `**bold**` whose text is itself emphasized) resolves to the node
+whose source interior contains the span: the plugin factory answers for that
+node and no other, which also keeps a span reopened later mapping to the same
+node. `SpanEditable` re-parses the span with the document's definitions and
+compares the rendered text, so a synthetic span (footnote marker, image alt,
+math wrapper) refuses the input instead of being edited into garbage.
+
+The draft stays out of the document for as long as the span is open: the block
+keeps parsing from the text it had when the span opened, which is the only way
+the node and the input stay findable frame after frame. Committing happens in
+one edit on `enter` (or on any other action), reverting on `esc`.
+
+Two real costs, both accepted: the source is edited with its markers on
+(keyboard, so `**bold**` is on screen while you type it — Typora hides the pair
+of stars), and a plain text run longer than roughly a sentence is opened as its
+block rather than as one line of a single-line input, because the input would
+scroll to itself and hide the rest of the line anyway.

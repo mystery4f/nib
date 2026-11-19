@@ -4,9 +4,11 @@ A small markdown editor for one job: being pi's `$EDITOR`. It opens the file you
 give it, shows the document rendered, and on close tells pi — through its exit
 code — whether the edit was saved or thrown away.
 
-Text is edited where it draws: the block under the caret turns back into its
-Markdown source and everything around it stays rendered. The source/preview
-split of v1 is still one key away.
+Text is edited where it draws. Click a word, a bold phrase, a code span or a
+link and just that span turns back into its Markdown source, inside the running
+text; click the rest of a paragraph, or a table, quote or list, and that block
+turns back into source instead. `esc` puts it back, `enter` accepts it. The
+source/preview split of v1 is still one key away.
 
 No new-file flow, no tabs, no open dialog. One path in, one exit code out.
 
@@ -54,7 +56,8 @@ the file only when Nib exits `0`.
 | `ctrl+s` | save, stay open |
 | `ctrl+enter` | save and close |
 | `ctrl+q` | close (asks first when there are unsaved changes) |
-| `esc` | close the block being edited (in the rendered view) |
+| `esc` | close the span or block being edited (in the rendered view) |
+| `enter` | accept the span being edited |
 | `↑` / `↓` | cross into the block above or below when the caret cannot move |
 | `f9` | cycle the view: rendered → split → source |
 
@@ -77,8 +80,8 @@ you want to be asked — see `docs/adr/0003-close-button-discards-dirty-work.md`
 - `internal/document` — load, dirty tracking, atomic save
 - `internal/preview` — the refresh policy (idle debounce, forced on save)
 - `internal/blocks` — Keel's source ranges, and the byte-range edits over them
-- `internal/ui` — Keel projection of the app's view: the three views and the
-  block editor
+- `internal/ui` — Keel projection of the app's view: the three views, the block
+  editor, and the inline span editor
 - `internal/niblog` — the log file, since the GUI build has no console
 - `docs/specs/nib-v1.md`, `docs/specs/nib-v2-render-mode.md` — what each version
   promises
