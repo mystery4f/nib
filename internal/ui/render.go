@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -171,15 +172,37 @@ func (s *Session) deactivate() {
 // start does not move while it is active, so the caret in the editor stays
 // where the user put it.
 func (s *Session) blockChanged(text string) {
-	if s.active == nil {
+	if s.active == nil || s.suppress {
 		return
 	}
 	previous := s.activeBody
 	s.activeBody = text
-	if at, ok := newlineInserted(previous, text); ok && s.breaksParagraph() {
-		s.breakBlockAt(at)
-		return
+	if at, ok := newlineInserted(previous, text); ok {
+		if s.breaksParagraph() {
+			s.breakBlockAt(at)
+			return
+		}
+		if s.activeKind == "list" && at == len(text) {
+			if next, ok := nextItem(text); ok {
+				s.rewriteBlock(next)
+				return
+			}
+		}
 	}
+	s.writeBlock(text)
+}
+
+// rewriteBlock replaces what the editor holds, so a keystroke that also changes
+// the text around the caret — Enter starting a new list item — leaves the caret
+// where the user expects it. The callback is muted while it runs.
+func (s *Session) rewriteBlock(text string) {
+	s.suppress = true
+	s.activeBody = text
+	s.active.SetValue(text)
+	line, col := caretAtEnd(text)
+	s.active.SetCursor(line, col)
+	s.active.Focus()
+	s.suppress = false
 	s.writeBlock(text)
 }
 
@@ -226,6 +249,38 @@ func newlineInserted(prev, next string) (int, bool) {
 		return 0, false
 	}
 	return i + 1, true
+}
+
+// nextItem continues the list the caret just left: Enter at the end of "- two"
+// starts "- ", the way the reference product does, instead of a lazy line inside
+// the same item. Ordered lists count on. Text that does not end with a list item
+// is left to the plain newline.
+func nextItem(text string) (string, bool) {
+	trimmed := strings.TrimRight(text, "\n")
+	line := trimmed
+	if i := strings.LastIndexByte(trimmed, '\n'); i >= 0 {
+		line = trimmed[i+1:]
+	}
+	indent := line[:len(line)-len(strings.TrimLeft(line, " "))]
+	body := line[len(indent):]
+	if len(body) >= 2 && (body[0] == '-' || body[0] == '*' || body[0] == '+') && body[1] == ' ' {
+		return text + indent + body[:2], true
+	}
+	digits := 0
+	for digits < len(body) && body[digits] >= '0' && body[digits] <= '9' {
+		digits++
+	}
+	if digits == 0 || digits+1 >= len(body) || body[digits+1] != ' ' {
+		return "", false
+	}
+	if body[digits] != '.' && body[digits] != ')' {
+		return "", false
+	}
+	n, err := strconv.Atoi(body[:digits])
+	if err != nil {
+		return "", false
+	}
+	return text + indent + strconv.Itoa(n+1) + body[digits:digits+2], true
 }
 
 // documentBlocks slices the source, remembering the last result: a frame that

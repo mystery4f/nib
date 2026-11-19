@@ -52,6 +52,9 @@ active block's `CodeEditor` is a window onto a byte range of it.
   block, a code block grows a line — because a newline there is content, not a
   block boundary. The editor view is capped at the window height, so a block
   that does grow keeps its caret on screen by scrolling inside itself.
+  Inside a list item the same Enter starts the next item instead of a lazy
+  continuation line: the marker and indent of the line it left are repeated, and
+  an ordered list counts on (`2. ` becomes `3. `) while keeping `.` or `)`.
 
 ## Blocks
 

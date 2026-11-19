@@ -104,3 +104,12 @@ edit never eats the blank lines that separate blocks. And because a code block
 can still legitimately grow taller than the window, the editor view is capped at
 the window height and scrolls inside itself instead of pushing the document
 scrollbar — the caret stays visible either way.
+
+A list item keeps its newline, but not as a plain one: the marker and indent of
+the line the caret left are repeated, so `- two` then Enter gives `- three` on
+the next line and an ordered list counts on. Detection is again the text, not the
+key — only a newline landing at the very end of the block continues a list, since
+a newline in the middle is somebody editing an existing item. The session rewrites
+the editor's own value for this, so the change callback is muted while it does; a
+muted callback cannot mistake its own rewrite for a keystroke and open another
+item.

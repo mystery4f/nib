@@ -59,6 +59,9 @@ type Session struct {
 	// activeKind is the block's Markdown kind, and activeBody the text the
 	// editor holds without those edges; Enter compares against it.
 	activeKind, activeBody string
+	// suppress silences the editor's change callback while the session rewrites
+	// the editor's own value, as it does when Enter starts a new list item.
+	suppress bool
 
 	sliced   []blocks.Block
 	sliceKey string
