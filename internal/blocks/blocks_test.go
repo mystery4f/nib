@@ -117,3 +117,29 @@ func TestDefinitionsEmptyWithoutAny(t *testing.T) {
 		t.Fatalf("Definitions = %q, want empty", got)
 	}
 }
+
+func TestSplitBlankEdgesCutsOnlyTheEdges(t *testing.T) {
+	for _, tc := range []struct {
+		name              string
+		text              string
+		lead, body, trail string
+	}{
+		{"no edges", "plain", "", "plain", ""},
+		{"blank line after", "| a | b |\n| 1 | 2 |\n\n", "", "| a | b |\n| 1 | 2 |", "\n\n"},
+		{"blank line before", "\n| a | b |\n| 1 | 2 |", "\n", "| a | b |\n| 1 | 2 |", ""},
+		{"blank lines both sides", "\n\ntext\n\n\n", "\n\n", "text", "\n\n\n"},
+		{"all blank", "  \n\n", "  \n\n", "", ""},
+		{"inner blank line kept", "a\n\nb\n", "", "a\n\nb", "\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			lead, body, trail := blocks.SplitBlankEdges(tc.text)
+			if lead != tc.lead || body != tc.body || trail != tc.trail {
+				t.Fatalf("SplitBlankEdges(%q) = %q, %q, %q; want %q, %q, %q",
+					tc.text, lead, body, trail, tc.lead, tc.body, tc.trail)
+			}
+			if lead+body+trail != tc.text {
+				t.Fatalf("edges lost text: %q", lead+body+trail)
+			}
+		})
+	}
+}

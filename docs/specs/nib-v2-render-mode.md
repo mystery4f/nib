@@ -34,6 +34,16 @@ active block's `CodeEditor` is a window onto a byte range of it.
   block that grows or shrinks (or splits in two) keeps the caret.
 - `esc` inside a block returns it to rendered form. `ctrl+s`, `ctrl+enter` and
   `ctrl+q` keep their v1 meaning and work from any mode.
+- An arrow key that cannot move the caret inside the block — `↑` on its first
+  line, `↓` on its last — carries the caret into the block beside it: the one
+  above arrives with the caret at its end, the one below with the caret at its
+  start. At either end of the document the key does nothing. This needs Keel's
+  `CodeEditorView.OnBoundary` (commit `83d1186`); the callback only records the
+  direction, because the element tree a callback runs in is discarded when the
+  frame ends, and the session switches block at the top of the next frame.
+- The blank lines a block slice carries at its edges are cut from the editor's
+  value and put back on every edit, so the first `↓` at the block's last line
+  crosses instead of walking through empty rows.
 
 ## Blocks
 
@@ -96,14 +106,19 @@ Two consequences of per-block rendering, accepted and documented:
   fence stays inside its code block, `Replace` composes and clamps stale offsets,
   `IndexAt` finds the block under an offset, `Overlaps` is half-open, and
   `Definitions` keeps real definition lines (including a title and an angle
-  destination), skips fenced ones and rejects a malformed line.
+  destination), skips fenced ones and rejects a malformed line, and
+  `SplitBlankEdges` cuts only the edges and never loses a byte.
   The app and writer tests stay off disk behind an in-memory filesystem, and
   `Stale` covers the preview refresh policy.
 - The `app` state machine does not change, so its tests stay as they are.
 - One automation scenario drives the built binary through the Keel automation
   socket: open a multi-block document, click a block, type, press `esc`, save,
   and assert the file bytes and the exit code; then repeat with `ctrl+q` and
-  Discard to assert the file is untouched and the exit code is 1.
+  Discard to assert the file is untouched and the exit code is 1. Crossing is
+  driven by keys: `↑` on the last block's only line moves the active block to the
+  table above with the caret at its end, `↓` brings it back with the caret at the
+  block's start (typed text proves the caret), and `↑` on the first block stays
+  put.
 
 ## Out of scope for v2
 

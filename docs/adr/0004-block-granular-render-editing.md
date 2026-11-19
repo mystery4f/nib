@@ -59,3 +59,19 @@ math block was split at a blank line.
   a view that scrolls itself, and `ScrollY` is on the outer document.
 - If a source-offset hit test ever appears upstream, the block model here does
   not change — only how a click picks its offset.
+
+## The caret crosses block edges
+
+Typora reveals the whole paragraph under the caret, not one span of it, so the
+block granularity matches the reference product; what it did not have was a caret
+that stops dead at the block's first and last line. Keel's
+`CodeEditorView.OnBoundary` (`83d1186`) reports those two keys, and the session
+opens the neighbouring block on the next frame — above, with the caret at its
+end, below, with the caret at its start.
+
+Span-level reveal (only the bolded or linked run turning into source) stays out.
+It needs a source→span mapping Keel does not have, plus a round-trip check that
+re-renders a candidate span with the document's definitions before showing it,
+because synthesized text (footnote markers, `$$` wrappers, rendered image alt)
+has no source of its own. Recorded here so the option is not rediscovered from
+scratch: a measured day or two, not an afternoon.

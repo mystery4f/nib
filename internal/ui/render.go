@@ -18,6 +18,10 @@ import (
 // as source in the place where it renders.
 func (s *Session) renderedPane(cx *el.Context, v app.View) el.Element {
 	bs := s.documentBlocks(v.Text)
+	if s.pendingMove != 0 {
+		s.moveAcrossBlock(v, bs)
+		bs = s.documentBlocks(v.Text)
+	}
 	docs := s.blockDocuments(v.Text, bs)
 	if s.active == nil && len(bs) == 0 {
 		s.activate(0) // an empty document still has to be typeable
@@ -49,7 +53,11 @@ func (s *Session) renderedPane(cx *el.Context, v app.View) el.Element {
 // of lines: it sits inside the document's own scroll, so it must not fill.
 func (s *Session) blockEditor(cx *el.Context) el.Element {
 	s.active.Height(blockHeight(s.active.Lines()))
-	return el.Div().WFull().Child(s.active.Render(cx))
+	root := el.Div().WFull().Child(s.active.Render(cx))
+	if s.focusArmed {
+		s.focusArmed, s.focusNext = false, true
+	}
+	return root
 }
 
 // blockHeight is how tall an editor over lines lines has to be to show all of
@@ -62,8 +70,13 @@ func blockHeight(lines int) float32 {
 	return float32(lines)*theme.TextMd*1.5 + 10
 }
 
-// activate opens the block holding offset as source.
-func (s *Session) activate(offset int) {
+// activate opens the block holding offset as source, caret at its end.
+func (s *Session) activate(offset int) { s.activateAt(offset, false) }
+
+// activateAt opens the block holding offset as source. atStart puts the caret
+// before the block's first character instead of after its last, which is where
+// a caret arriving from above belongs.
+func (s *Session) activateAt(offset int, atStart bool) {
 	v := s.app.View()
 	bs := s.documentBlocks(v.Text)
 	start, end := 0, len(v.Text)
@@ -79,15 +92,40 @@ func (s *Session) activate(offset int) {
 		kind = bs[i].Kind
 	}
 	s.activeStart, s.activeEnd = start, end
-	text := v.Text[start:end]
-	s.active = kit.CodeEditor(text).
+	lead, body, trail := blocks.SplitBlankEdges(v.Text[start:end])
+	s.activeLead, s.activeTrail = lead, trail
+	s.active = kit.CodeEditor(body).
 		Language("markdown").
 		Name("block " + kind).
 		SoftWrap(true).
-		OnChange(s.blockChanged)
-	s.active.Focus()
-	line, col := caretAtEnd(text)
+		OnChange(s.blockChanged).
+		OnBoundary(s.boundary)
+	line, col := caretAtEnd(body)
+	if atStart {
+		line, col = 0, 0
+	}
 	s.active.SetCursor(line, col)
+	s.active.Focus()
+	s.focusArmed, s.focusNext = true, false
+}
+
+// boundary records an arrow key the caret could not follow: the session switches
+// block on the next frame, because this one's element tree is about to be
+// discarded and must not be changed from inside a callback.
+func (s *Session) boundary(dir int) {
+	s.pendingMove, s.pendingAtStart = dir, dir > 0
+}
+
+// moveAcrossBlock consumes a recorded boundary key and opens the block above or
+// below the active one. At either end of the document it does nothing.
+func (s *Session) moveAcrossBlock(v app.View, bs []blocks.Block) {
+	dir, atStart := s.pendingMove, s.pendingAtStart
+	s.pendingMove = 0
+	i := blocks.IndexAt(bs, s.activeStart)
+	if i < 0 || i+dir < 0 || i+dir >= len(bs) {
+		return
+	}
+	s.activateAt(bs[i+dir].Start, atStart)
 }
 
 // caretAtEnd reports the line and column where an activated block starts
@@ -107,6 +145,7 @@ func caretAtEnd(text string) (line, col int) {
 // deactivate closes the active block and leaves the document fully rendered.
 func (s *Session) deactivate() {
 	s.active, s.activeStart, s.activeEnd = nil, 0, 0
+	s.activeLead, s.activeTrail = "", ""
 }
 
 // blockChanged writes the block's text back into the document. The block's
@@ -116,6 +155,7 @@ func (s *Session) blockChanged(text string) {
 	if s.active == nil {
 		return
 	}
+	text = s.activeLead + text + s.activeTrail
 	s.app.Handle(app.Edit(blocks.Replace(s.app.View().Text, s.activeStart, s.activeEnd, text)))
 	s.activeEnd = s.activeStart + len(text)
 	s.edited++

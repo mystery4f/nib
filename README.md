@@ -46,6 +46,7 @@ the file only when Nib exits `0`.
 | `ctrl+enter` | save and close |
 | `ctrl+q` | close (asks first when there are unsaved changes) |
 | `esc` | close the block being edited (in the rendered view) |
+| `↑` / `↓` | cross into the block above or below when the caret cannot move |
 | `f9` | cycle the view: rendered → split → source |
 
 ## Exit codes

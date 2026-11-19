@@ -213,3 +213,25 @@ func clamp(src string, pos int) int {
 	}
 	return pos
 }
+
+// SplitBlankEdges cuts the blank lines a block slice carries at its edges, so
+// the editor holds only the block's own lines.
+func SplitBlankEdges(text string) (lead, body, trail string) {
+	start := 0
+	for start < len(text) {
+		i := strings.IndexByte(text[start:], '\n')
+		if i < 0 || strings.TrimSpace(text[start:start+i]) != "" {
+			break
+		}
+		start += i + 1
+	}
+	end := len(text)
+	for end > start {
+		j := strings.LastIndexByte(text[:end], '\n')
+		if j < start || strings.TrimSpace(text[j+1:end]) != "" {
+			break
+		}
+		end = j
+	}
+	return text[:start], text[start:end], text[end:]
+}

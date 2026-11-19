@@ -52,6 +52,10 @@ type Session struct {
 	// active, so an edit never has to move the caret.
 	active                 *kit.CodeEditorView
 	activeStart, activeEnd int
+	// The block slice carries blank lines at its edges. The editor shows the
+	// text without them so the caret crosses into the next block on the first
+	// try; every edit puts them back unchanged.
+	activeLead, activeTrail string
 
 	sliced   []blocks.Block
 	sliceKey string
@@ -61,7 +65,15 @@ type Session struct {
 	edited   uint64
 	rendered uint64
 	lastEdit time.Time
-	forced   bool
+	// pendingMove is an arrow that could not move the caret inside the active
+	// block (-1 up, +1 down): the next frame opens the block beside it.
+	pendingMove    int
+	pendingAtStart bool
+	// A new block editor cannot take focus while the frame that builds it is
+	// still running: its widget does not exist yet. focusArmed marks that frame,
+	// focusNext the one after, which is where Focus() lands on a live widget.
+	focusArmed, focusNext bool
+	forced                bool
 
 	exit    func(int)
 	log     Logger
@@ -89,6 +101,12 @@ func (s *Session) Render(cx *el.Context) el.Element {
 	v := s.app.View()
 	s.bindKeys(cx, v)
 	s.refreshIfDue(cx)
+	if s.focusNext {
+		s.focusNext = false
+		if s.active != nil {
+			s.active.Focus()
+		}
+	}
 	return el.Div().HFull().WFull().Col().Child(
 		s.header(cx, v),
 		s.panes(cx, v),
