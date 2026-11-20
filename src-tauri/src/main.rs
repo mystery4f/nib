@@ -3,7 +3,11 @@
 
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine as _;
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State, WindowEvent};
@@ -79,6 +83,56 @@ fn discard_and_exit(app: AppHandle) {
 fn accept_and_exit(app: AppHandle) {
     app.exit(EXIT_ACCEPTED);
 }
+
+/// Pasted and uploaded images are written here: a scratch area that survives
+/// until the system clears the temp directory.
+fn images_dir() -> PathBuf {
+    std::env::temp_dir().join("nib").join("images")
+}
+
+static NEXT_IMAGE: AtomicU64 = AtomicU64::new(0);
+
+/// Names an image so two pastes never collide and the extension still tells a
+/// browser which decoder to use.
+fn image_name(name: &str) -> String {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis())
+        .unwrap_or(0);
+    let seq = NEXT_IMAGE.fetch_add(1, Ordering::Relaxed);
+    let ext = Path::new(name)
+        .extension()
+        .map(|ext| ext.to_string_lossy().to_lowercase())
+        .filter(|ext| !ext.is_empty() && ext.chars().all(|c| c.is_ascii_alphanumeric()))
+        .unwrap_or_else(|| "png".to_string());
+    format!("paste-{stamp}-{seq}.{ext}")
+}
+
+fn write_image(dir: &Path, name: &str, bytes: &[u8]) -> io::Result<PathBuf> {
+    std::fs::create_dir_all(dir)?;
+    let path = dir.join(image_name(name));
+    std::fs::write(&path, bytes)?;
+    Ok(path)
+}
+
+#[tauri::command]
+fn open_images_dir() -> Result<String, String> {
+    let dir = images_dir();
+    std::fs::create_dir_all(&dir).map_err(|err| format!("create {}: {err}", dir.display()))?;
+    Ok(dir.display().to_string())
+}
+
+/// Base64 in, file on disk out. The page cannot write files itself, and the
+/// document keeps the plain path so the markdown stays readable.
+#[tauri::command]
+fn save_pasted_image(name: String, data: String) -> Result<String, String> {
+    let bytes = STANDARD
+        .decode(data.as_bytes())
+        .map_err(|err| format!("image data: {err}"))?;
+    let path =
+        write_image(&images_dir(), &name, &bytes).map_err(|err| format!("save image: {err}"))?;
+    Ok(path.display().to_string())
+}
 /// Rejects anything but exactly one path, then loads it. Once this returns the
 /// window exists, so a failure here has to leave through the exit code.
 fn open_initial(args: &[String]) -> Result<(PathBuf, String), String> {
@@ -147,7 +201,9 @@ fn main() {
             set_dirty,
             save_and_exit,
             discard_and_exit,
-            accept_and_exit
+            accept_and_exit,
+            open_images_dir,
+            save_pasted_image
         ])
         .setup({
             let title = format!("nib — {name}");
@@ -176,4 +232,138 @@ fn main() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static NEXT_DIR: AtomicUsize = AtomicUsize::new(0);
+
+    /// A fresh directory under the system temp dir, removed when the guard drops.
+    struct ScratchDir(PathBuf);
+
+    impl ScratchDir {
+        fn new() -> Self {
+            let n = NEXT_DIR.fetch_add(1, Ordering::Relaxed);
+            let dir = std::env::temp_dir().join(format!("nib-test-{}-{n}", std::process::id()));
+            fs::create_dir_all(&dir).expect("scratch dir");
+            Self(dir)
+        }
+
+        fn file(&self, name: &str) -> PathBuf {
+            self.0.join(name)
+        }
+    }
+
+    impl Drop for ScratchDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn args(list: &[&str]) -> Vec<String> {
+        list.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn open_initial_rejects_missing_and_extra_arguments() {
+        assert_eq!(open_initial(&[]), Err("usage: nib <file.md>".into()));
+        assert_eq!(
+            open_initial(&args(&["a.md", "b.md"])),
+            Err("usage: nib <file.md>: got 2 arguments".into())
+        );
+    }
+
+    #[test]
+    fn open_initial_reports_an_unreadable_file() {
+        let scratch = ScratchDir::new();
+        let missing = scratch.file("absent.md");
+        let error = open_initial(&[missing.display().to_string()]).expect_err("should fail");
+        assert!(
+            error.starts_with(&format!("open {}", missing.display())),
+            "unexpected message: {error}"
+        );
+    }
+
+    #[test]
+    fn open_initial_strips_the_bom_and_keeps_the_bytes() {
+        let scratch = ScratchDir::new();
+        let path = scratch.file("bom.md");
+        fs::write(&path, "\u{feff}# title\n\nbody\n").expect("write fixture");
+        let (opened, text) = open_initial(&[path.display().to_string()]).expect("should open");
+        assert_eq!(opened, path);
+        assert_eq!(text, "# title\n\nbody\n");
+    }
+
+    #[test]
+    fn write_atomically_replaces_the_file_and_leaves_no_temp() {
+        let scratch = ScratchDir::new();
+        let path = scratch.file("doc.md");
+        fs::write(&path, "old\n").expect("write fixture");
+        write_atomically(&path, "new\ntext").expect("should write");
+        assert_eq!(fs::read_to_string(&path).expect("read back"), "new\ntext");
+        let leftovers: Vec<_> = fs::read_dir(&scratch.0)
+            .expect("list dir")
+            .map(|entry| {
+                entry
+                    .expect("entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .filter(|name| name.ends_with(".tmp"))
+            .collect();
+        assert!(
+            leftovers.is_empty(),
+            "temp files left behind: {leftovers:?}"
+        );
+    }
+
+    #[test]
+    fn write_atomically_fails_without_touching_the_target() {
+        let scratch = ScratchDir::new();
+        let path = scratch.file("doc.md");
+        fs::write(&path, "keep\n").expect("write fixture");
+        let into_missing_dir = scratch.file("nope").join("doc.md");
+        assert!(write_atomically(&into_missing_dir, "lost").is_err());
+        assert_eq!(fs::read_to_string(&path).expect("read back"), "keep\n");
+    }
+
+    #[test]
+    fn file_name_falls_back_to_the_whole_path() {
+        assert_eq!(file_name(Path::new(r"C:\docs\note.md")), "note.md");
+    }
+
+    #[test]
+    fn write_image_keeps_the_extension_of_the_source_name() {
+        let scratch = ScratchDir::new();
+        let path = write_image(&scratch.0, "shot.JPG", b"bytes").expect("write image");
+        assert!(
+            path.starts_with(&scratch.0),
+            "outside the images dir: {path:?}"
+        );
+        assert_eq!(path.extension().and_then(|ext| ext.to_str()), Some("jpg"));
+        assert_eq!(fs::read(&path).expect("read back"), b"bytes");
+    }
+
+    #[test]
+    fn write_image_falls_back_to_png_and_never_reuses_a_name() {
+        let scratch = ScratchDir::new();
+        let first = write_image(&scratch.0, "clipboard", b"one").expect("first");
+        let second = write_image(&scratch.0, "clipboard", b"two").expect("second");
+        assert_ne!(first, second);
+        assert_eq!(first.extension().and_then(|ext| ext.to_str()), Some("png"));
+    }
+
+    #[test]
+    fn image_name_rejects_a_traversing_suffix() {
+        let name = image_name("../../evil.sh/../x");
+        assert!(
+            !name.contains('/') && !name.contains('\\'),
+            "unexpected name: {name}"
+        );
+    }
 }
