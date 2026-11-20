@@ -1,5 +1,9 @@
 # ADR 0005 — Inline span editing was attempted and reverted
 
+> Superseded by ADR 0006: the feature was rebuilt on Keel `bc552c1`, which
+> fixes the hit-through at the framework level, with Nib's per-frame focus
+> churn removed. Read this ADR for why the first attempt failed.
+
 ## Context
 
 ADR 0004 left one door open: block-level reveal is coarse, and Typora-like
