@@ -6,6 +6,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/dyike/keel/gio/f32"
 	"github.com/dyike/keel/ui/el"
 	"github.com/dyike/keel/ui/kit"
 	"github.com/dyike/keel/ui/markdown"
@@ -48,10 +49,12 @@ func (s *Session) renderedPane(cx *el.Context, v app.View) el.Element {
 		}
 		// A paragraph or a heading reports its inline spans, so its own text
 		// decides what opens; a code block, a table, a quote or a list has no
-		// spans and opens whole.
-		row := el.Div().WFull()
+		// spans and opens whole. The row remembers where the pointer sits, so
+		// the click that follows puts the caret on the character it landed on
+		// rather than at the end of the block.
+		row := el.Div().WFull().OnPointerMove(func(x, y float32) { s.trackPointer(start, x, y) })
 		if b.Kind != "paragraph" && b.Kind != "heading" {
-			row.OnClick(func() { s.activate(start) })
+			row.OnClick(func() { s.clickBlock(start) })
 		}
 		page.Child(row.Child(body.Render(cx)))
 	}
@@ -113,13 +116,17 @@ func (s *Session) activateAt(offset int, atStart bool) {
 	if i := blocks.IndexAt(bs, start); i >= 0 {
 		kind = bs[i].Kind
 	}
-	s.openBlock(start, end, kind, atStart)
+	caret := -1
+	if atStart {
+		caret = start
+	}
+	s.openBlock(start, end, kind, caret)
 }
 
 // openBlock shows [start, end) of the source as the block being edited. The
 // range is passed in rather than looked up because a paragraph broken off by
 // Enter is an empty range with no parsed block of its own.
-func (s *Session) openBlock(start, end int, kind string, atStart bool) {
+func (s *Session) openBlock(start, end int, kind string, caret int) {
 	v := s.app.View()
 	lead, body, trail := blocks.SplitBlankEdges(v.Text[start:end])
 	s.activeStart, s.activeEnd = start, end
@@ -132,8 +139,8 @@ func (s *Session) openBlock(start, end int, kind string, atStart bool) {
 		OnChange(s.blockChanged).
 		OnBoundary(s.boundary)
 	line, col := caretAtEnd(body)
-	if atStart {
-		line, col = 0, 0
+	if caret >= 0 {
+		line, col = caretAt(body, caret-start-len(lead))
 	}
 	s.active.SetCursor(line, col)
 	s.active.Focus()
@@ -171,6 +178,105 @@ func caretAtEnd(text string) (line, col int) {
 		col = utf8.RuneCountInString(trimmed)
 	}
 	return line, col
+}
+
+// caretAt reports the line and column of byte offset off in text, which is
+// where a click inside the block puts the caret.
+func caretAt(text string, off int) (line, col int) {
+	off = min(max(off, 0), len(text))
+	line = strings.Count(text[:off], "\n")
+	col = utf8.RuneCountInString(text[strings.LastIndexByte(text[:off], '\n')+1 : off])
+	return line, col
+}
+
+// trackPointer remembers where the pointer sits inside a rendered block, in
+// that block's own pixels, so the click that follows can put the caret on the
+// character it landed on.
+func (s *Session) trackPointer(start int, x, y float32) {
+	scale := s.scale
+	if scale <= 0 {
+		scale = 1
+	}
+	s.pointer = f32.Point{X: x * scale, Y: y * scale}
+	s.pointerBlock, s.pointerSet = start, true
+}
+
+// clickBlock opens the block a click landed on, with the caret on the character
+// under the pointer. A click whose position maps to no source byte opens the
+// block at its end, which is where typing continues.
+func (s *Session) clickBlock(start int) {
+	at, ok := s.pointerOffset(start)
+	if !ok {
+		s.activate(start)
+		return
+	}
+	s.activateAtCaret(start, at)
+}
+
+// pointerOffset maps the last known pointer position over block start to a byte
+// of the source. A rendered block carries the document's link-reference
+// definitions in front of it, so the offset moves back past them.
+func (s *Session) pointerOffset(start int) (int, bool) {
+	if !s.pointerSet || s.pointerBlock != start {
+		return 0, false
+	}
+	v := s.app.View()
+	bs := s.documentBlocks(v.Text)
+	i := blocks.IndexAt(bs, start)
+	if i < 0 || i >= len(s.docs) {
+		return 0, false
+	}
+	doc := s.docs[i]
+	ranges := doc.SourceRanges()
+	rangeIndex, off, ok := nearestSource(doc, s.pointer)
+	if !ok || rangeIndex < 0 || rangeIndex >= len(ranges) {
+		return 0, false
+	}
+	at := start + ranges[rangeIndex].Start + off - len(blocks.Definitions(v.Text))
+	if at < start {
+		at = start
+	}
+	// A character is several bytes, and a point lands on one of them, so the
+	// byte walks back to the start of its rune: a caret cannot split a
+	// character, and the column count would be wrong if it did.
+	for at > start && at < len(v.Text) && !utf8.RuneStart(v.Text[at]) {
+		at--
+	}
+	return at, true
+}
+
+// sourceProbePx bounds how far above and below a click the source is asked
+// where the pointer landed: a click between two drawn lines lands on neither.
+const sourceProbePx = 60
+
+// nearestSource asks the document for the source byte under pt, then walks up
+// and down from pt until a line answers. A click between two lines then puts
+// the caret on the line nearest the pointer instead of nowhere.
+func nearestSource(doc *markdown.Doc, pt f32.Point) (int, int, bool) {
+	if i, off, ok := doc.SourceAt(pt); ok {
+		return i, off, true
+	}
+	for dy := float32(1); dy <= sourceProbePx; dy++ {
+		if i, off, ok := doc.SourceAt(f32.Point{X: pt.X, Y: pt.Y - dy}); ok {
+			return i, off, true
+		}
+		if i, off, ok := doc.SourceAt(f32.Point{X: pt.X, Y: pt.Y + dy}); ok {
+			return i, off, true
+		}
+	}
+	return 0, 0, false
+}
+
+// activateAtCaret opens the block holding offset with the caret on byte at.
+func (s *Session) activateAtCaret(offset, at int) {
+	s.closeSpan()
+	bs := s.documentBlocks(s.app.View().Text)
+	i := blocks.IndexAt(bs, offset)
+	if i < 0 {
+		s.activate(offset)
+		return
+	}
+	s.openBlock(bs[i].Start, bs[i].End, bs[i].Kind, at)
 }
 
 // deactivate closes the active block and leaves the document fully rendered.
@@ -244,7 +350,7 @@ func (s *Session) breakBlockAt(at int) {
 	s.edited++
 	s.lastEdit = time.Now()
 	start := s.activeStart + len(s.activeLead) + len(before) + 2
-	s.openBlock(start, start+len(after), "paragraph", true)
+	s.openBlock(start, start+len(after), "paragraph", start)
 }
 
 // newlineInserted reports the offset just past a newline that prev and next

@@ -179,16 +179,24 @@ func (s *Session) spanClicked(i, k int) {
 	// Committing an open span now rewrites bytes, so the clicked span is moved
 	// to where it lands in the new text before it opens.
 	start, end := b.Start+from, b.Start+to
+	caret, caretKnown := s.pointerOffset(b.Start)
 	if open := s.span; open != nil {
 		cs, ce, rep := open.start, open.end, open.draft
 		s.closeSpan()
 		start, end = shiftSpan(start, end, cs, ce, rep)
+		if caretKnown {
+			caret, _ = shiftSpan(caret, caret, cs, ce, rep)
+		}
 		text = s.app.View().Text
 	}
 	if revealBlock {
 		// A whole sentence as a single-line input would hide most of itself,
-		// so a long run is revealed as its block instead.
-		s.activateAt(start, false)
+		// so a long run is revealed as its block instead, caret under the click.
+		if caretKnown {
+			s.activateAtCaret(start, caret)
+			return
+		}
+		s.activateAtCaret(start, start)
 		return
 	}
 	s.deactivate()

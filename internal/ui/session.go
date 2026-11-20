@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/dyike/keel/gio/f32"
 	"github.com/dyike/keel/ui/el"
 	"github.com/dyike/keel/ui/kit"
 	"github.com/dyike/keel/ui/markdown"
@@ -84,6 +85,14 @@ type Session struct {
 	focusArmed, focusNext bool
 	forced                bool
 
+	// pointer is where the pointer last sat over a rendered block, in that
+	// block's own pixels, and pointerBlock is which block it was. A click that
+	// follows uses it to put the caret on the character it landed on.
+	pointer      f32.Point
+	pointerBlock int
+	pointerSet   bool
+	scale        float32
+
 	exit    func(int)
 	log     Logger
 	logPath string
@@ -108,6 +117,7 @@ func New(a *app.App, log Logger, exit func(int)) *Session {
 // Render builds the frame. Keel calls it on the render goroutine.
 func (s *Session) Render(cx *el.Context) el.Element {
 	v := s.app.View()
+	s.scale = cx.PixelScale()
 	s.bindKeys(cx, v)
 	s.refreshIfDue(cx)
 	if s.focusNext {
