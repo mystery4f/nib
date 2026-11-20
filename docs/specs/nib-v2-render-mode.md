@@ -141,6 +141,14 @@ Two consequences of per-block rendering, accepted and documented:
   marker cannot be edited as text, and a whole sentence is revealed as its
   block rather than as one line of a single-line input. Neither is a feature
   gap: the source is still one click deep.
+- **A span edit replaces the whole span.** Keel records an inline object's
+  widget into a macro (`ui/markdown/text.go`, `op.Record` + `call.Add`), and Gio's
+  input router never walks macro contents, so the embedded input's own clicker
+  and dragger are never registered: a press cannot move its caret and a drag
+  cannot select a range. The draft is therefore selected whole when the span
+  opens, and the status bar says so. Plain typing replaces the span; anything
+  finer needs Keel to paint inline objects in place instead of replaying a
+  macro.
 
 ## Testing
 

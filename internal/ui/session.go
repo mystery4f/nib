@@ -180,7 +180,7 @@ func (s *Session) bindKeys(cx *el.Context, v app.View) {
 	case v.Confirming:
 		cx.Shortcut("esc", func() { s.dispatch(app.ReturnToEditing) })
 	case s.span != nil:
-		cx.Shortcut("esc", s.closeSpan)
+		cx.Shortcut("esc", s.discardSpan)
 	case s.active != nil:
 		cx.Shortcut("esc", s.deactivate)
 	}

@@ -346,6 +346,9 @@ func (s *Session) blockHint(v app.View) string {
 	if s.mode != modeRendered || v.Confirming {
 		return ""
 	}
+	if s.span != nil {
+		return "Typing replaces the whole span · Enter keeps · Esc reverts"
+	}
 	if s.active == nil {
 		return "Click a block to edit it"
 	}

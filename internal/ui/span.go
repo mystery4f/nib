@@ -322,6 +322,15 @@ func (s *Session) closeSpan() {
 	s.lastEdit = time.Now()
 }
 
+// discardSpan leaves the span without writing its draft: the block goes back to
+// rendering the text it had when the span opened.
+func (s *Session) discardSpan() {
+	if s.span == nil {
+		return
+	}
+	s.span = nil
+}
+
 // spanWidth is how wide the input over text has to be: wide enough to hold it
 // without scrolling, short of the line it would otherwise push out.
 func spanWidth(text string) float32 {
