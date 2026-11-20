@@ -2,3 +2,8 @@
 /nib
 /nib.exe
 *.exe
+/node_modules/
+/dist/
+/.pi/
+/.playwright-mcp/
+/nib-dev.png

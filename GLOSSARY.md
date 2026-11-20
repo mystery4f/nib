@@ -13,52 +13,29 @@ The outcome where the file on disk now holds the content the session produced, r
 _Avoid_: save (that is the user's keystroke), commit, submit
 
 **Discard**:
-The outcome where the file is deliberately left byte-identical to its state at session start, reported as a non-zero exit code. Also the state a quit request waits in until resolved.
+The outcome where the file is deliberately left byte-identical to its state at session start, reported as exit code 1. Also the state a quit request waits in until resolved.
 _Avoid_: cancel, abort, rollback
 
 **Could not start**:
-A preflight failure — wrong arguments, unreadable file, unwritable directory — that ends the session before any window exists, reported distinctly from Discard.
+A preflight failure — wrong arguments or an unreadable file — that ends the session before any window exists, reported as exit code 2, distinctly from Discard.
+_Avoid_: validation error, startup failure
 
 **Dirty**:
-The document's text differs from what is on disk. It is a fact about the document, not about whether the user pressed save.
+The document's text differs from what was last written. It is a fact about the document, not about whether the user pressed save, and it is the flag that decides whether a close has to ask and whether a save touches the disk at all.
 _Avoid_: modified, unsaved, changed
 
+**Shell**:
+The Rust half: it owns argv, the file, the dirty flag, the atomic write and the exit code. It renders nothing.
+_Avoid_: backend, host, core
+
+**Page**:
+The React half: it owns the editor and the key bindings, and asks the shell to save or to exit. It never touches the file.
+_Avoid_: frontend, UI layer, renderer
+
 **Command**:
-A user or window event expressed as an intent the domain object handles ("save", "save and quit", "quit"). Handlers name a command; they never mutate state directly.
-_Avoid_: action, event, message
+One of the six operations the page may invoke on the shell — read the document, write it, report dirtiness, save and exit, discard and exit, accept and exit. Each ends a session or leaves the file untouched; none returns a document to the page mid-session.
+_Avoid_: call, request, RPC
 
-**Preview**:
-The rendered markdown, always a projection of the source and never an input surface. It may lag the source by the refresh policy; it never becomes the source of truth.
-_Avoid_: rich text view, WYSIWYG pane, output
-
-**Block**:
-A contiguous byte range of the source that Markdown parses as one top-level construct — a paragraph, heading, list, quote, table, fenced code block, and so on. Ranges tile the whole document with no gaps, and Keel reports them, so Nib never guesses a boundary.
-_Avoid_: chunk, node, element, section
-
-**Active block**:
-The one block shown as Markdown source instead of its rendering, one of the places typing goes in the rendered view. It stays active until another block is clicked or `esc` closes it.
-_Avoid_: focused block, edited block, selection
-
-**Span**:
-One inline stretch of a paragraph or a heading as Keel reports it — plain text, an emphasis, a strong phrase, a code span, a link, a footnote reference — carrying its source byte range and whether its rendered text is synthetic. An inline span is the smallest thing Nib edits in place.
-_Avoid_: run, token, fragment, piece
-
-**Active span**:
-The single inline span shown as Markdown source inside the still-rendered rest of its block, and the other place typing goes. It is accepted by `enter`, reverted by `esc`, and every other action — clicking another span, a view switch, a save, a quit — commits it first.
-_Avoid_: inline editor, popover, input
-
-**View**:
-Which of the three projections the window is showing: rendered (blocks, one span or block of them active), split (source beside preview), or source. A view changes what is drawn, never the document.
-_Avoid_: mode, layout, tab
-
-**Refresh policy**:
-The rule that decides whether a pending edit is due to be rendered: idle past the debounce, or forced by save. Deliberately separate from rendering itself.
-_Avoid_: debounce, throttle, autosave
-
-**Exit path**:
-The one function through which a session ends: it either writes and accepts, or leaves the file alone and reports a code. No other code calls the process exit.
-_Avoid_: shutdown, teardown, quit handler
-
-**Preflight**:
-The checks made before the window opens — argument count, file readability, directory writability — whose failures are logged rather than shown.
-_Avoid_: validation, startup checks
+**Confirmation strip**:
+The bar the page shows when a quit request arrives on a dirty document, offering save-and-close, discard, or keep editing. It is shown by the page, not by the window manager, because the shell only knows that a close was requested.
+_Avoid_: dialog, modal, prompt

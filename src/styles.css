@@ -1,0 +1,115 @@
+:root {
+  color-scheme: light;
+  --nib-ink: #2e3440;
+  --nib-muted: #6b7280;
+  --nib-line: #d8dee9;
+  --nib-surface: #eceff4;
+  --nib-accent: #5e81ac;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family:
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    "Microsoft YaHei",
+    sans-serif;
+  color: var(--nib-ink);
+  background: #fff;
+}
+
+.nib {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.nib-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.45rem 1rem;
+  border-bottom: 1px solid var(--nib-line);
+  background: var(--nib-surface);
+  font-size: 13px;
+}
+
+.nib-name {
+  font-weight: 600;
+}
+
+.nib-dirty {
+  color: #bf616a;
+  font-size: 12px;
+}
+
+.nib-hint {
+  margin-left: auto;
+  color: var(--nib-muted);
+  font-size: 12px;
+}
+
+.nib-editor {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.nib-footer {
+  min-height: 22px;
+  padding: 0 1rem;
+  font-size: 12px;
+  color: var(--nib-muted);
+  border-top: 1px solid var(--nib-line);
+  background: var(--nib-surface);
+  display: flex;
+  align-items: center;
+}
+
+.nib-confirm {
+  position: absolute;
+  left: 50%;
+  bottom: 3rem;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--nib-line);
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 10px 30px rgba(46, 52, 64, 0.18);
+  font-size: 13px;
+}
+
+.nib-confirm button {
+  font: inherit;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid var(--nib-line);
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.nib-confirm button:first-of-type {
+  border-color: var(--nib-accent);
+  background: var(--nib-accent);
+  color: #fff;
+}
+
+/* Crepe draws its own frame; give it a page-like column instead. */
+.nib-editor .milkdown {
+  padding-bottom: 30vh;
+}
