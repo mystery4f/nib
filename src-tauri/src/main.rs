@@ -45,6 +45,12 @@ fn get_document(state: State<AppState>) -> DocumentPayload {
     }
 }
 
+fn should_write(dirty: bool, chosen: bool) -> bool {
+    // A document the user never edited must not be rewritten: Milkdown
+    // normalises markdown on load, so its text never equals the file's bytes.
+    dirty || chosen
+}
+
 #[tauri::command]
 fn save_document(
     app: AppHandle,
@@ -55,7 +61,7 @@ fn save_document(
     let mut doc = state.0.lock().expect("state lock");
     let chosen = path.is_some();
     let target = target_path(&mut doc, path)?;
-    if !chosen && !doc.dirty {
+    if !should_write(doc.dirty, chosen) {
         // Nothing was edited, so the round-tripped text must not rewrite the
         // file (Milkdown normalises markdown on load).
         return Ok(());
@@ -84,7 +90,7 @@ fn save_and_exit(
     let mut doc = state.0.lock().expect("state lock");
     let chosen = path.is_some();
     let target = target_path(&mut doc, path)?;
-    if doc.dirty || chosen {
+    if should_write(doc.dirty, chosen) {
         write_atomically(&target, &text).map_err(|err| format!("save failed: {err}"))?;
     }
     doc.saved = text;
@@ -93,6 +99,7 @@ fn save_and_exit(
     app.exit(EXIT_ACCEPTED);
     Ok(())
 }
+
 #[tauri::command]
 fn discard_and_exit(app: AppHandle) {
     app.exit(EXIT_DISCARDED);
@@ -317,6 +324,15 @@ mod tests {
         list.iter().map(|s| s.to_string()).collect()
     }
 
+    #[test]
+    fn should_write_leaves_a_clean_document_alone() {
+        // Regression: comparing the round-tripped text with the file's bytes made
+        // a freshly opened document rewrite itself, because Milkdown normalises
+        // markdown on load.
+        assert!(!should_write(false, false));
+        assert!(should_write(true, false));
+        assert!(should_write(false, true));
+    }
     #[test]
     fn open_initial_starts_blank_without_arguments() {
         let (path, text) = open_initial(&[]).expect("no path is a blank document");

@@ -44,3 +44,14 @@ jobs:
 
       - name: rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: release binary
+        run: npm run tauri build -- --no-bundle
+
+      - name: end to end
+        shell: bash
+        run: |
+          set -e
+          for phase in clean edit discard; do
+            npm run --silent e2e -- --binary src-tauri/target/release/nib.exe --file scripts/fixtures/sample.md --phase "$phase"
+          done

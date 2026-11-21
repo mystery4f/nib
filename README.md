@@ -124,14 +124,16 @@ being dirty rather than on the serialised text differing.
 stripping, atomic save (and its failure path), image naming. The exit contract
 and the views are exercised end-to-end against the real binary through WebView2's
 remote debugging port:
-
 ```sh
-node scripts/e2e.mjs --file .tmp/sample.md --phase clean    # ctrl+enter, nothing edited
-node scripts/e2e.mjs --file .tmp/sample.md --phase edit     # ctrl+enter after a typed edit
-node scripts/e2e.mjs --file .tmp/sample.md --phase discard  # ctrl+q -> Discard
-node scripts/e2e.mjs --file .tmp/sample.md --phase split    # f9, edit in the source pane
-node scripts/e2e.mjs --file .tmp/sample.md --phase image    # paste a png, save, temp dir entry
+npm run e2e -- --file scripts/fixtures/sample.md --phase clean    # ctrl+enter, nothing edited
+npm run e2e -- --file scripts/fixtures/sample.md --phase edit     # ctrl+enter after a typed edit
+npm run e2e -- --file scripts/fixtures/sample.md --phase discard  # ctrl+q -> Discard
+npm run e2e -- --file scripts/fixtures/sample.md --phase split    # f9, edit in the source pane
+npm run e2e -- --file scripts/fixtures/sample.md --phase image    # paste a png, save, temp dir entry
 ```
+
+`ci` builds the release binary and runs the `clean`, `edit` and `discard` phases;
+`split` and `image` need a real clipboard and stay manual.
 
 Pass `--binary <path>` to point the same checks at an installed build
 (`"$LOCALAPPDATA/nib/nib.exe"` after running the installer) instead of the one in
@@ -143,6 +145,13 @@ the process exit code plus the file bytes.
 
 `npm run format:check` and `npm run check:rust` (rustfmt + clippy `-D warnings`)
 are the other two gates.
+
+`git config core.hooksPath .githooks` turns on the pre-commit hook, which runs
+the same three gates before a commit leaves the machine.
+
+While iterating on the page, run `npm run tauri dev` (vite HMR plus a debug
+build). A release build embeds `dist` into the binary, so every CSS tweak costs
+a full `npm run tauri build` — save that for the final check.
 
 A screenshot of a Tauri window comes out blank — WebView2 paints through the
 GPU and no window capture sees it. To look at the page, open
