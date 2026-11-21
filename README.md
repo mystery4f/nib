@@ -132,8 +132,11 @@ npm run e2e -- --file scripts/fixtures/sample.md --phase split    # f9, edit in 
 npm run e2e -- --file scripts/fixtures/sample.md --phase image    # paste a png, save, temp dir entry
 ```
 
-`ci` builds the release binary and runs the `clean`, `edit` and `discard` phases;
-`split` and `image` need a real clipboard and stay manual.
+Every phase needs a desktop session — on a hosted CI runner WebView2 never
+opens its debugging port, so `npm run e2e` is a local and pre-release gate, not
+a `ci` step. `ci` builds the release binary and runs `cargo test`, which covers
+the write decision (`should_write`) that used to be reachable only through the
+window.
 
 Pass `--binary <path>` to point the same checks at an installed build
 (`"$LOCALAPPDATA/nib/nib.exe"` after running the installer) instead of the one in

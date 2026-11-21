@@ -48,10 +48,7 @@ jobs:
       - name: release binary
         run: npm run tauri build -- --no-bundle
 
-      - name: end to end
-        shell: bash
-        run: |
-          set -e
-          for phase in clean edit discard; do
-            npm run --silent e2e -- --binary src-tauri/target/release/nib.exe --file scripts/fixtures/sample.md --phase "$phase"
-          done
+      # The end-to-end run needs a desktop session: on a hosted runner WebView2
+      # never opens its debugging port, so `npm run e2e` stays a local gate (and a
+      # pre-release check) while `should_write`'s unit test guards the exit
+      # contract here.
