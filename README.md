@@ -126,7 +126,12 @@ node scripts/e2e.mjs --file .tmp/sample.md --phase clean    # ctrl+enter, nothin
 node scripts/e2e.mjs --file .tmp/sample.md --phase edit     # ctrl+enter after a typed edit
 node scripts/e2e.mjs --file .tmp/sample.md --phase discard  # ctrl+q -> Discard
 node scripts/e2e.mjs --file .tmp/sample.md --phase split    # f9, edit in the source pane
+node scripts/e2e.mjs --file .tmp/sample.md --phase image    # paste a png, save, temp dir entry
 ```
+
+Pass `--binary <path>` to point the same checks at an installed build
+(`"$LOCALAPPDATA/nib/nib.exe"` after running the installer) instead of the one in
+the repository root.
 
 Each run copies the fixture to `<file>.e2e`, drives the page over CDP
 (`Runtime.evaluate`, `Input.dispatchKeyEvent`, `Input.insertText`), and asserts

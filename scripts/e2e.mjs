@@ -5,7 +5,8 @@
 // starts nib with it, drives the page over CDP, and then asserts the two things
 // a caller actually judges — the process exit code and the file bytes.
 //
-//   node scripts/e2e.mjs --file <doc.md> --phase clean|edit|discard
+//   node scripts/e2e.mjs --file <doc.md> --phase clean|edit|discard|split|image
+//   node scripts/e2e.mjs --binary <nib.exe> --phase ...   (check an installed build)
 //
 // The fixture is copied to `<doc>.e2e` and removed afterwards; the source file
 // is never touched.
@@ -13,13 +14,13 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { copyFile, readFile, rm } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, "..");
-const binary = join(repo, "nib.exe");
 const PORT = 9222;
 const EDIT = "e2e edit";
 let domProblems = [];
@@ -28,6 +29,8 @@ function option(name, fallback) {
   const at = args.indexOf(`--${name}`);
   return at === -1 ? fallback : args[at + 1];
 }
+
+const binary = resolve(option("binary", join(repo, "nib.exe")));
 
 const source = option("file", join(repo, ".tmp", "sample.md"));
 const phase = option("phase", "edit");
@@ -57,6 +60,15 @@ const nib = spawn(binary, [fixture], {
 const exited = new Promise((done) =>
   nib.on("exit", (code) => done(code ?? -1)),
 );
+
+// A window that never closes would otherwise hang the caller forever, so the
+// whole run gets a ceiling.
+const watchdog = setTimeout(() => {
+  console.error("FAIL the run took longer than 120s; killing nib");
+  nib.kill();
+  process.exit(1);
+}, 120_000);
+watchdog.unref();
 
 async function debuggerTarget() {
   for (let attempt = 0; attempt < 100; attempt++) {
@@ -100,8 +112,13 @@ const send = (method, params = {}) =>
   });
 
 const evaluate = async (expression) =>
-  (await send("Runtime.evaluate", { expression, returnByValue: true })).result
-    .value;
+  (
+    await send("Runtime.evaluate", {
+      expression,
+      returnByValue: true,
+      awaitPromise: true,
+    })
+  ).result.value;
 
 // The debugging port opens before React has mounted, and a shortcut pressed
 // into a page with no listeners yet is silently lost.
@@ -174,6 +191,72 @@ async function typeIntoFirstParagraph(text) {
   await sleep(400);
 }
 
+function countImages() {
+  try {
+    return readdirSync(join(tmpdir(), "nib", "images")).filter((name) =>
+      name.endsWith(".png"),
+    ).length;
+  } catch {
+    return 0;
+  }
+}
+
+// Pastes a one pixel PNG through a synthetic ClipboardEvent: that is the only
+// path an automated run has to the paste handler, and it exercises the whole
+// chain — base64 over the IPC, the temp dir write, the asset URL in the view.
+async function pasteImage() {
+  const box = await evaluate(`(() => {
+    const p = document.querySelector(".ProseMirror p");
+    p.scrollIntoView({ block: "center" });
+    const r = p.getBoundingClientRect();
+    return { x: r.x + Math.min(120, r.width / 2), y: r.y + r.height / 2 };
+  })()`);
+  for (const type of ["mousePressed", "mouseReleased"]) {
+    await send("Input.dispatchMouseEvent", {
+      type,
+      x: box.x,
+      y: box.y,
+      button: "left",
+      clickCount: 1,
+    });
+  }
+  await sleep(300);
+  return evaluate(`(async () => {
+    const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==";
+    const bytes = Uint8Array.from(atob(png), (c) => c.charCodeAt(0));
+    const file = new File([bytes], "e2e.png", { type: "image/png" });
+    const data = new DataTransfer();
+    data.items.add(file);
+    document.dispatchEvent(
+      new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }),
+    );
+    await new Promise((done) => setTimeout(done, 1500));
+    const image = document.querySelector(".milkdown img");
+    return {
+      src: image?.getAttribute("src") ?? "",
+      count: document.querySelectorAll(".milkdown img").length,
+    };
+  })()`);
+}
+
+async function imagePasteProblems() {
+  const before = countImages();
+  const shown = await pasteImage();
+  const after = countImages();
+  if (!shown || typeof shown.src !== "string")
+    return ["the paste was not observed in the page"];
+  const problems = [];
+  if (!shown.src.startsWith("http://asset.localhost"))
+    problems.push(
+      `the pasted image should render through the asset protocol, got "${shown.src}"`,
+    );
+  if (after !== before + 1)
+    problems.push(
+      `one image should land in the temp images dir: ${before} -> ${after}`,
+    );
+  return problems;
+}
+
 async function confirmDiscard() {
   await pressKey("q", "KeyQ", 81);
   await sleep(700);
@@ -233,6 +316,10 @@ async function run() {
   await waitForPage();
   if (phase === "clean") {
     await pressKey("Enter", "Enter", 13);
+  } else if (phase === "image") {
+    domProblems = await imagePasteProblems();
+    await sleep(400);
+    await pressKey("Enter", "Enter", 13);
   } else if (phase === "split") {
     await switchView();
     await typeIntoSourcePane(`\n\n${EDIT}\n`);
@@ -254,6 +341,7 @@ async function run() {
 
 await run();
 const code = await exited;
+clearTimeout(watchdog);
 socket.close();
 
 const after = await digest(fixture);
@@ -264,12 +352,14 @@ if (phase === "clean" && (code !== 0 || after !== before)) {
     `clean exit should leave the file untouched: code=${code} changed=${after !== before}`,
   );
 }
+const written =
+  phase === "image" ? text.includes("nib/images/paste-") : text.includes(EDIT);
 if (
-  (phase === "edit" || phase === "split") &&
-  (code !== 0 || !text.includes(EDIT))
+  (phase === "edit" || phase === "split" || phase === "image") &&
+  (code !== 0 || !written)
 ) {
   problems.push(
-    `${phase} exit should accept the edit: code=${code} written=${text.includes(EDIT)}`,
+    `${phase} exit should accept the edit: code=${code} written=${written}`,
   );
 }
 if (phase === "edit" && text.includes("<br"))
