@@ -22,7 +22,7 @@ const repo = resolve(here, "..");
 const binary = join(repo, "nib.exe");
 const PORT = 9222;
 const EDIT = "e2e edit";
-
+let domProblems = [];
 const args = process.argv.slice(2);
 function option(name, fallback) {
   const at = args.indexOf(`--${name}`);
@@ -32,25 +32,38 @@ function option(name, fallback) {
 const source = option("file", join(repo, ".tmp", "sample.md"));
 const phase = option("phase", "edit");
 if (!existsSync(source)) throw new Error(`no such fixture: ${source}`);
-if (!existsSync(binary)) throw new Error(`no binary at ${binary}; run "npm run tauri -- build --no-bundle" first`);
+if (!existsSync(binary))
+  throw new Error(
+    `no binary at ${binary}; run "npm run tauri -- build --no-bundle" first`,
+  );
 
 const fixture = `${source}.e2e`;
-const digest = async (path) => createHash("md5").update(await readFile(path)).digest("hex");
+const digest = async (path) =>
+  createHash("md5")
+    .update(await readFile(path))
+    .digest("hex");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 await copyFile(source, fixture);
 const before = await digest(fixture);
 
 const nib = spawn(binary, [fixture], {
-  env: { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${PORT}` },
+  env: {
+    ...process.env,
+    WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${PORT}`,
+  },
   stdio: "ignore",
 });
-const exited = new Promise((done) => nib.on("exit", (code) => done(code ?? -1)));
+const exited = new Promise((done) =>
+  nib.on("exit", (code) => done(code ?? -1)),
+);
 
 async function debuggerTarget() {
   for (let attempt = 0; attempt < 100; attempt++) {
     try {
-      const targets = await (await fetch(`http://127.0.0.1:${PORT}/json`)).json();
+      const targets = await (
+        await fetch(`http://127.0.0.1:${PORT}/json`)
+      ).json();
       const page = targets.find((t) => t.type === "page");
       if (page) return page;
     } catch {
@@ -75,7 +88,9 @@ socket.onmessage = (event) => {
   const waiter = pending.get(message.id);
   if (!waiter) return;
   pending.delete(message.id);
-  message.error ? waiter.fail(new Error(message.error.message)) : waiter.open(message.result);
+  message.error
+    ? waiter.fail(new Error(message.error.message))
+    : waiter.open(message.result);
 };
 const send = (method, params = {}) =>
   new Promise((open, fail) => {
@@ -85,13 +100,16 @@ const send = (method, params = {}) =>
   });
 
 const evaluate = async (expression) =>
-  (await send("Runtime.evaluate", { expression, returnByValue: true })).result.value;
+  (await send("Runtime.evaluate", { expression, returnByValue: true })).result
+    .value;
 
 // The debugging port opens before React has mounted, and a shortcut pressed
 // into a page with no listeners yet is silently lost.
 async function waitForPage() {
   for (let attempt = 0; attempt < 150; attempt++) {
-    const ready = await evaluate(`!!document.querySelector(".ProseMirror")`).catch(() => false);
+    const ready = await evaluate(
+      `!!document.querySelector(".ProseMirror")`,
+    ).catch(() => false);
     if (ready) return;
     await sleep(100);
   }
@@ -99,9 +117,22 @@ async function waitForPage() {
 }
 
 async function pressKey(key, code, keyCode) {
-  const event = { key, code, windowsVirtualKeyCode: keyCode, nativeVirtualKeyCode: keyCode };
-  await send("Input.dispatchKeyEvent", { type: "keyDown", modifiers: 2, ...event });
-  await send("Input.dispatchKeyEvent", { type: "keyUp", modifiers: 2, ...event });
+  const event = {
+    key,
+    code,
+    windowsVirtualKeyCode: keyCode,
+    nativeVirtualKeyCode: keyCode,
+  };
+  await send("Input.dispatchKeyEvent", {
+    type: "keyDown",
+    modifiers: 2,
+    ...event,
+  });
+  await send("Input.dispatchKeyEvent", {
+    type: "keyUp",
+    modifiers: 2,
+    ...event,
+  });
 }
 
 // Click a real paragraph and type there. A caret forced in with a DOM Range sits
@@ -115,11 +146,29 @@ async function typeIntoFirstParagraph(text) {
     return { x: r.x + Math.min(120, r.width / 2), y: r.y + r.height / 2 };
   })()`);
   for (const type of ["mousePressed", "mouseReleased"]) {
-    await send("Input.dispatchMouseEvent", { type, x: box.x, y: box.y, button: "left", clickCount: 1 });
+    await send("Input.dispatchMouseEvent", {
+      type,
+      x: box.x,
+      y: box.y,
+      button: "left",
+      clickCount: 1,
+    });
   }
   await sleep(300);
-  await send("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 });
-  await send("Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 });
+  await send("Input.dispatchKeyEvent", {
+    type: "keyDown",
+    key: "Enter",
+    code: "Enter",
+    windowsVirtualKeyCode: 13,
+    nativeVirtualKeyCode: 13,
+  });
+  await send("Input.dispatchKeyEvent", {
+    type: "keyUp",
+    key: "Enter",
+    code: "Enter",
+    windowsVirtualKeyCode: 13,
+    nativeVirtualKeyCode: 13,
+  });
   await sleep(200);
   await send("Input.insertText", { text });
   await sleep(400);
@@ -131,14 +180,69 @@ async function confirmDiscard() {
   const labels = await evaluate(
     `Array.from(document.querySelectorAll(".nib-confirm button")).map((b) => b.textContent)`,
   );
-  if (!Array.isArray(labels) || labels.length === 0) throw new Error("no confirmation strip appeared");
-  await evaluate(`Array.from(document.querySelectorAll(".nib-confirm button")).find((b) => b.textContent === "Discard").click()`);
+  if (!Array.isArray(labels) || labels.length === 0)
+    throw new Error("no confirmation strip appeared");
+  await evaluate(
+    `Array.from(document.querySelectorAll(".nib-confirm button")).find((b) => b.textContent === "Discard").click()`,
+  );
   await sleep(800);
+}
+
+// The split view keeps its text in a textarea and its rendering in a second
+// editor, so both halves have to follow each other.
+async function switchView() {
+  await pressKey("F9", "F9", 120);
+  await sleep(900);
+}
+
+async function typeIntoSourcePane(text) {
+  const box = await evaluate(`(() => {
+    const area = document.querySelector(".nib-source");
+    const r = area.getBoundingClientRect();
+    return { x: r.x + r.width - 40, y: r.y + r.height - 60 };
+  })()`);
+  for (const type of ["mousePressed", "mouseReleased"]) {
+    await send("Input.dispatchMouseEvent", {
+      type,
+      x: box.x,
+      y: box.y,
+      button: "left",
+      clickCount: 1,
+    });
+  }
+  await sleep(300);
+  await send("Input.insertText", { text });
+  await sleep(900);
+}
+
+async function splitProblems() {
+  const found = [];
+  if (!(await evaluate(`!!document.querySelector(".nib-source")`)))
+    found.push("the source pane never appeared");
+  if (!(await evaluate(`!!document.querySelector(".nib-preview .milkdown")`)))
+    found.push("the preview pane never appeared");
+  const preview = await evaluate(
+    `document.querySelector(".nib-preview .milkdown")?.innerText ?? ""`,
+  );
+  if (!preview.includes(EDIT))
+    found.push("the preview did not follow the source pane");
+  return found;
 }
 
 async function run() {
   await waitForPage();
   if (phase === "clean") {
+    await pressKey("Enter", "Enter", 13);
+  } else if (phase === "split") {
+    await switchView();
+    await typeIntoSourcePane(`\n\n${EDIT}\n`);
+    domProblems = await splitProblems();
+    await switchView();
+    const landed = await evaluate(
+      `document.querySelector(".ProseMirror")?.innerText ?? ""`,
+    );
+    if (!landed.includes(EDIT))
+      domProblems.push("switching back lost the text typed in the source pane");
     await pressKey("Enter", "Enter", 13);
   } else {
     await typeIntoFirstParagraph(EDIT);
@@ -156,16 +260,27 @@ const after = await digest(fixture);
 const text = await readFile(fixture, "utf8");
 const problems = [];
 if (phase === "clean" && (code !== 0 || after !== before)) {
-  problems.push(`clean exit should leave the file untouched: code=${code} changed=${after !== before}`);
+  problems.push(
+    `clean exit should leave the file untouched: code=${code} changed=${after !== before}`,
+  );
 }
-if (phase === "edit" && (code !== 0 || !text.includes(EDIT))) {
-  problems.push(`edit exit should accept the edit: code=${code} written=${text.includes(EDIT)}`);
+if (
+  (phase === "edit" || phase === "split") &&
+  (code !== 0 || !text.includes(EDIT))
+) {
+  problems.push(
+    `${phase} exit should accept the edit: code=${code} written=${text.includes(EDIT)}`,
+  );
 }
-if (phase === "edit" && text.includes("<br")) problems.push("the save wrote a hard break (<br />)");
+if (phase === "edit" && text.includes("<br"))
+  problems.push("the save wrote a hard break (<br />)");
 if (phase === "discard" && (code !== 1 || after !== before)) {
-  problems.push(`discard should leave the file byte-identical: code=${code} changed=${after !== before}`);
+  problems.push(
+    `discard should leave the file byte-identical: code=${code} changed=${after !== before}`,
+  );
 }
 
+problems.push(...domProblems);
 console.log(`phase=${phase} exit=${code} file_changed=${after !== before}`);
 await rm(fixture, { force: true });
 if (problems.length) {

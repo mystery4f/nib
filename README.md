@@ -3,7 +3,8 @@
 A small markdown editor for one job: being pi's `$EDITOR`. It opens the one file
 it is given, edits it rendered — WYSIWYG, the way a word processor does — and on
 exit tells the caller, through its exit code, whether the edit was saved or
-thrown away.
+thrown away. A second view shows the markdown source beside a live rendering for
+when the exact bytes matter.
 
 No new-file flow, no tabs, no open dialog, no file browser. One path in, one exit
 code out.
@@ -52,23 +53,41 @@ the file only when Nib exits `0`.
 
 ## Keys
 
-| Key | Action |
-| --- | --- |
-| `ctrl+s` | save, stay open |
-| `ctrl+enter` | save and close |
-| `ctrl+q` | close (asks first when there are unsaved changes) |
-| `esc` | dismiss the confirmation strip |
+| Key          | Action                                              |
+| ------------ | --------------------------------------------------- |
+| `ctrl+s`     | save, stay open                                     |
+| `ctrl+enter` | save and close                                      |
+| `ctrl+q`     | close (asks first when there are unsaved changes)   |
+| `esc`        | dismiss the confirmation strip                      |
+| `f9`         | swap between the rendered editor and the split view |
+
+Editing keys follow Typora where Milkdown has no binding of its own: `ctrl+k`
+link, `ctrl+t` table, `ctrl+shift+k` code block, `ctrl+shift+q` quote,
+`ctrl+shift+`` ` `` inline code, `ctrl+1`..`ctrl+6` heading level,
+`ctrl+0` paragraph. `ctrl+b`, `ctrl+i` and `ctrl+e` are the editor's own.
 
 Everything else — bold, lists, tables, code blocks, links — is the editor's own
 toolbar and shortcuts.
 
+## Views
+
+- **Edit** — the rendered editor. The caret, the selection and the inline
+  formatting all live in Milkdown; what is on screen is what gets saved.
+- **Split** — markdown source on the left, a read-only rendering on the right.
+  The preview waits for a pause in typing (250 ms) instead of re-rendering on
+  every keystroke. `ctrl+s`, `ctrl+enter` and `ctrl+q` work the same in both
+  views, and switching views carries the text across.
+
+Pasted or uploaded images are written to `%TEMP%\nib\images\` and the document
+keeps the plain file path; only the view turns it into an `asset://` URL.
+
 ## Exit codes
 
-| Code | Meaning |
-| --- | --- |
-| `0` | accepted: written, or unmodified and nothing to write |
-| `1` | discarded or cancelled |
-| `2` | could not start: bad arguments, unreadable file |
+| Code | Meaning                                               |
+| ---- | ----------------------------------------------------- |
+| `0`  | accepted: written, or unmodified and nothing to write |
+| `1`  | discarded or cancelled                                |
+| `2`  | could not start: bad arguments, unreadable file       |
 
 An unmodified document is never written: Milkdown normalises markdown on load
 (`-` becomes `*`, table cells get padded), so a save is gated on the document
@@ -76,27 +95,35 @@ being dirty rather than on the serialised text differing.
 
 ## Where things are
 
-- `src-tauri/src/main.rs` — argv, preflight, `AppState`, atomic save, the six
+- `src-tauri/src/main.rs` — argv, preflight, `AppState`, atomic save, the eight
   commands the page calls, the close hook, the single `app.exit`
-- `src/main.tsx` — mount, dirty tracking, key bindings, confirmation strip
+- `src/main.tsx` — the two views, dirty tracking, key bindings, image paste, the
+  confirmation strip
 - `src/styles.css` — the chrome around the editor
+- `scripts/e2e.mjs` — the end-to-end run against the real binary
 - `docs/adr/` — decisions, newest last; `0007` supersedes the Keel-era ones
 - `GLOSSARY.md` — the words this project uses
 
 ## Tests
 
-There is no unit-test suite yet; the exit contract is exercised end-to-end
-against the real binary through WebView2's remote debugging port:
+`cargo test` covers the parts that do not need a window: argument handling, BOM
+stripping, atomic save (and its failure path), image naming. The exit contract
+and the views are exercised end-to-end against the real binary through WebView2's
+remote debugging port:
 
 ```sh
-WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222 ./nib.exe doc.md
+node scripts/e2e.mjs --file .tmp/sample.md --phase clean    # ctrl+enter, nothing edited
+node scripts/e2e.mjs --file .tmp/sample.md --phase edit     # ctrl+enter after a typed edit
+node scripts/e2e.mjs --file .tmp/sample.md --phase discard  # ctrl+q -> Discard
+node scripts/e2e.mjs --file .tmp/sample.md --phase split    # f9, edit in the source pane
 ```
 
-then drive the page over CDP (`Runtime.evaluate`, `Input.dispatchKeyEvent`,
-`Input.insertText`) and assert the process exit code and the file bytes. The
-three paths verified that way: clean `ctrl+enter` (exit 0, file untouched),
-edited `ctrl+enter` (exit 0, file holds the edit), edited `ctrl+q` → Discard
-(exit 1, file byte-identical).
+Each run copies the fixture to `<file>.e2e`, drives the page over CDP
+(`Runtime.evaluate`, `Input.dispatchKeyEvent`, `Input.insertText`), and asserts
+the process exit code plus the file bytes.
+
+`npm run format:check` and `npm run check:rust` (rustfmt + clippy `-D warnings`)
+are the other two gates.
 
 A screenshot of a Tauri window comes out blank — WebView2 paints through the
 GPU and no window capture sees it. To look at the page, open

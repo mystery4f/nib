@@ -113,3 +113,51 @@ body {
 .nib-editor .milkdown {
   padding-bottom: 30vh;
 }
+
+.nib-mode {
+  font: inherit;
+  font-size: 12px;
+  padding: 0.2rem 0.55rem;
+  border: 1px solid var(--nib-line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--nib-ink);
+  cursor: pointer;
+}
+
+.nib-mode:hover {
+  border-color: var(--nib-accent);
+}
+
+/* Source on the left, rendering on the right; both halves scroll alone. */
+.nib-split {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+
+.nib-source {
+  height: 100%;
+  min-height: 0;
+  padding: 1.25rem 1.5rem;
+  border: 0;
+  border-right: 1px solid var(--nib-line);
+  outline: none;
+  resize: none;
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--nib-ink);
+  background: #fbfcfd;
+  tab-size: 2;
+}
+
+.nib-preview {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.nib-preview .milkdown {
+  padding-bottom: 20vh;
+}

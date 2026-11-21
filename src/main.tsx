@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { ChangeEvent } from "react";
 import { createRoot } from "react-dom/client";
 import { Crepe } from "@milkdown/crepe";
 import { commandsCtx } from "@milkdown/kit/core";
+import { replaceAll } from "@milkdown/kit/utils";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import "@milkdown/crepe/theme/common/style.css";
@@ -9,6 +11,14 @@ import "@milkdown/crepe/theme/classic.css";
 import "./styles.css";
 
 type Document = { name: string; text: string };
+
+/// Two ways to work: the rendered editor where what you type is what you see,
+/// and a split where the markdown source sits beside a read-only rendering.
+type Mode = "edit" | "split";
+
+/// How long the split preview waits after the last keystroke before it
+/// re-renders; refreshing on every keystroke would make typing crawl.
+const PREVIEW_DELAY = 250;
 
 /// Images live in the system temp directory. The document keeps the plain path
 /// so the markdown stays readable; only the view converts it for the webview.
@@ -55,6 +65,18 @@ function displayUrl(url: string): string {
   return convertFileSrc(url);
 }
 
+/// Every upload path (paste, drop of a file, the upload button) parks the bytes
+/// in the temp image directory instead of a blob URL, so the document can point
+/// at a file that outlives the session.
+const IMAGE_CONFIG = {
+  [Crepe.Feature.ImageBlock]: {
+    onUpload: storeImage,
+    blockOnUpload: storeImage,
+    inlineOnUpload: storeImage,
+    proxyDomURL: displayUrl,
+  },
+};
+
 /// Typora's editing keys that Milkdown does not bind itself. Ctrl+B, Ctrl+I and
 /// Ctrl+E already work inside the editor, so they are deliberately absent.
 function typoraCommand(
@@ -78,19 +100,36 @@ function typoraCommand(
 
 function App() {
   const holderRef = useRef<HTMLDivElement>(null);
+  const previewHolderRef = useRef<HTMLDivElement>(null);
   const crepeRef = useRef<Crepe | null>(null);
-  const savedRef = useRef<string>("");
+  const previewRef = useRef<Crepe | null>(null);
+  const previewTimerRef = useRef<number | null>(null);
+  const textRef = useRef("");
+  const savedRef = useRef("");
+  const baselineRef = useRef(false);
   const [doc, setDoc] = useState<Document | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [mode, setMode] = useState<Mode>("edit");
+  const [text, setText] = useState("");
   const [dirty, setDirty] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [notice, setNotice] = useState("");
 
+  const publish = useCallback((next: string) => {
+    textRef.current = next;
+    const isDirty = next !== savedRef.current;
+    setDirty(isDirty);
+    void invoke("set_dirty", { dirty: isDirty });
+  }, []);
+
+  /// The editor is the truth while it is mounted; otherwise the last text the
+  /// page saw stands in for it.
   const currentText = useCallback(() => {
     const crepe = crepeRef.current;
-    if (!crepe) return savedRef.current;
-    // Crepe serialises through its own editor; the trailing newline the
-    // markdown writer adds is not part of what the user wrote.
-    return crepe.getMarkdown().replace(/\n$/, "");
+    if (!crepe) return textRef.current;
+    const serialised = crepe.getMarkdown().replace(/\n$/, "");
+    textRef.current = serialised;
+    return serialised;
   }, []);
 
   // Milkdown owns its command table; this is the seam the page uses to run the
@@ -101,53 +140,120 @@ function App() {
     crepe.editor.action((ctx) => ctx.get(commandsCtx).call(key, payload));
   }, []);
 
-  const markDirty = useCallback(() => {
-    const isDirty = currentText() !== savedRef.current;
-    setDirty(isDirty);
-    void invoke("set_dirty", { dirty: isDirty });
-  }, [currentText]);
-
-  // Load and mount the editor. The shell hands over the file it was started
-  // with; nothing else opens a document.
+  // The shell hands over the file it was started with; nothing else opens a
+  // document.
   useEffect(() => {
     let disposed = false;
     void (async () => {
-      const loaded = await invoke<Document>("get_document");
-      if (disposed || !holderRef.current) return;
-      setDoc(loaded);
-      const crepe = new Crepe({
-        root: holderRef.current,
-        defaultValue: loaded.text,
-        featureConfigs: {
-          // Every upload path (paste, drop of a file, the upload button) parks
-          // the bytes in the temp image directory instead of a blob URL, so the
-          // document can point at a file that outlives the session.
-          [Crepe.Feature.ImageBlock]: {
-            onUpload: storeImage,
-            blockOnUpload: storeImage,
-            inlineOnUpload: storeImage,
-            proxyDomURL: displayUrl,
-          },
-        },
-      });
-      crepeRef.current = crepe;
-      await crepe.create();
+      const loadedDoc = await invoke<Document>("get_document");
       if (disposed) return;
-      // Milkdown normalises the markdown on load; track the normalised form
-      // so a clean document never looks dirty, and a save never rewrites a
-      // byte when nothing was edited.
-      savedRef.current = crepe.getMarkdown().replace(/\n$/, "");
-      setDirty(false);
+      setDoc(loadedDoc);
+      textRef.current = loadedDoc.text;
+      savedRef.current = loadedDoc.text;
+      setText(loadedDoc.text);
+      setLoaded(true);
       await invoke("set_dirty", { dirty: false });
-      crepe.on((listener) => listener.updated(() => markDirty()));
     })();
     return () => {
       disposed = true;
-      const crepe = crepeRef.current;
-      crepeRef.current = null;
-      void crepe?.destroy();
     };
-  }, [markDirty]);
+  }, []);
+
+  // The rendered editor, mounted only while the page is in edit mode. Its
+  // baseline is captured on the first mount: Milkdown normalises the markdown
+  // when it parses, and that normalised form is what a clean document holds.
+  useEffect(() => {
+    if (!loaded || mode !== "edit" || !holderRef.current) return;
+    let disposed = false;
+    const crepe = new Crepe({
+      root: holderRef.current,
+      defaultValue: textRef.current,
+      featureConfigs: IMAGE_CONFIG,
+    });
+    crepeRef.current = crepe;
+    void (async () => {
+      await crepe.create();
+      if (disposed) return;
+      if (!baselineRef.current) {
+        baselineRef.current = true;
+        const baseline = crepe.getMarkdown().replace(/\n$/, "");
+        savedRef.current = baseline;
+        textRef.current = baseline;
+        setText(baseline);
+        setDirty(false);
+        await invoke("set_dirty", { dirty: false });
+      }
+      crepe.on((listener) =>
+        listener.updated(() => publish(crepe.getMarkdown().replace(/\n$/, ""))),
+      );
+    })();
+    return () => {
+      disposed = true;
+      // Keep what the user typed before the editor goes away, so switching
+      // modes never loses an edit.
+      textRef.current = crepe.getMarkdown().replace(/\n$/, "");
+      crepeRef.current = null;
+      void crepe.destroy();
+    };
+  }, [loaded, mode, publish]);
+
+  // The preview half of the split view: a read-only rendering that follows the
+  // source pane.
+  useEffect(() => {
+    if (!loaded || mode !== "split" || !previewHolderRef.current) return;
+    let disposed = false;
+    const crepe = new Crepe({
+      root: previewHolderRef.current,
+      defaultValue: textRef.current,
+      featureConfigs: IMAGE_CONFIG,
+    });
+    previewRef.current = crepe;
+    void (async () => {
+      await crepe.create();
+      if (disposed) return;
+      crepe.setReadonly(true);
+    })();
+    return () => {
+      disposed = true;
+      previewRef.current = null;
+      if (previewTimerRef.current !== null) {
+        window.clearTimeout(previewTimerRef.current);
+        previewTimerRef.current = null;
+      }
+      void crepe.destroy();
+    };
+  }, [loaded, mode]);
+
+  const refreshPreview = useCallback(() => {
+    if (previewTimerRef.current !== null)
+      window.clearTimeout(previewTimerRef.current);
+    previewTimerRef.current = window.setTimeout(() => {
+      previewTimerRef.current = null;
+      const preview = previewRef.current;
+      if (!preview) return;
+      preview.editor.action(replaceAll(textRef.current));
+    }, PREVIEW_DELAY);
+  }, []);
+
+  const onSourceChange = useCallback(
+    (event: ChangeEvent<HTMLTextAreaElement>) => {
+      const next = event.target.value;
+      setText(next);
+      publish(next);
+      refreshPreview();
+    },
+    [publish, refreshPreview],
+  );
+
+  const toggleMode = useCallback(() => {
+    if (mode === "edit") {
+      textRef.current = currentText();
+      setText(textRef.current);
+      setMode("split");
+      return;
+    }
+    setMode("edit");
+  }, [currentText, mode]);
 
   const save = useCallback(async (): Promise<boolean> => {
     try {
@@ -180,9 +286,15 @@ function App() {
   }, []);
 
   // Bindings live in the page: ctrl+s saves without leaving, ctrl+enter saves
-  // and leaves, ctrl+q asks on a dirty document and leaves on a clean one.
+  // and leaves, ctrl+q asks on a dirty document and leaves on a clean one, f9
+  // swaps the view.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "F9") {
+        event.preventDefault();
+        toggleMode();
+        return;
+      }
       const mod = event.ctrlKey || event.metaKey;
       if (!mod) {
         if (event.key === "Escape" && confirming) {
@@ -214,7 +326,15 @@ function App() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [acceptAndLeave, confirming, dirty, runCommand, save, saveAndLeave]);
+  }, [
+    acceptAndLeave,
+    confirming,
+    dirty,
+    runCommand,
+    save,
+    saveAndLeave,
+    toggleMode,
+  ]);
 
   // The shell cannot tell whether closing means "keep my edits"; it asks.
   useEffect(() => {
@@ -225,8 +345,10 @@ function App() {
   }, []);
 
   // Crepe has no paste handler for image files, so the page stores the bytes in
-  // the temp image directory and inserts a reference to that file.
+  // the temp image directory and inserts a reference to that file. The source
+  // pane of the split view is a plain textarea and takes care of itself.
   useEffect(() => {
+    if (mode !== "edit") return;
     const onPaste = (event: ClipboardEvent) => {
       const files = clipImageFiles(event.clipboardData);
       if (files.length === 0) return;
@@ -244,18 +366,34 @@ function App() {
     };
     window.addEventListener("paste", onPaste);
     return () => window.removeEventListener("paste", onPaste);
-  }, [runCommand]);
+  }, [mode, runCommand]);
 
   return (
     <main className="nib">
       <header className="nib-header">
         <strong className="nib-name">{doc?.name ?? "nib"}</strong>
         {dirty && <span className="nib-dirty">● unsaved</span>}
+        <button className="nib-mode" onClick={toggleMode} title="F9">
+          {mode === "edit" ? "Split view" : "Edit view"}
+        </button>
         <span className="nib-hint">
           Ctrl+K link · Ctrl+T table · Ctrl+Shift+K code · Ctrl+1-6 heading
         </span>
       </header>
-      <div ref={holderRef} className="nib-editor" />
+      {mode === "edit" ? (
+        <div ref={holderRef} className="nib-editor" />
+      ) : (
+        <div className="nib-split">
+          <textarea
+            className="nib-source"
+            value={text}
+            onChange={onSourceChange}
+            spellCheck={false}
+            aria-label="markdown source"
+          />
+          <div ref={previewHolderRef} className="nib-preview" />
+        </div>
+      )}
       <footer className="nib-footer">
         {notice && <span className="nib-notice">{notice}</span>}
       </footer>
