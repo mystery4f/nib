@@ -18,7 +18,8 @@ code out.
 - **Tauri 2** — the window; WebView2 on Windows.
 - **React + Vite** (`src/`) — the page.
 - **Milkdown Crepe** — the editor. It owns the caret; Nib does not map clicks to
-  source offsets.
+  source offsets. Crepe's nord dark theme is the default; Nib's own chrome follows
+  it.
 
 `docs/adr/0007-rust-tauri-milkdown-rewrite.md` records why the earlier Keel
 build was dropped.

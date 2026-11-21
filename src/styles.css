@@ -1,10 +1,14 @@
 :root {
-  color-scheme: light;
-  --nib-ink: #2e3440;
-  --nib-muted: #6b7280;
-  --nib-line: #d8dee9;
-  --nib-surface: #eceff4;
-  --nib-accent: #5e81ac;
+  color-scheme: dark;
+  --nib-ink: #e6e8ea;
+  --nib-muted: #8f949c;
+  --nib-line: #34383f;
+  --nib-surface: #23262b;
+  --nib-panel: #2a2d33;
+  --nib-page: #1b1c1d;
+  --nib-code: #1b1c1d;
+  --nib-accent: #88c0d0;
+  --nib-alert: #d98b93;
 }
 
 * {
@@ -26,7 +30,7 @@ body {
     "Microsoft YaHei",
     sans-serif;
   color: var(--nib-ink);
-  background: #fff;
+  background: var(--nib-page);
 }
 
 .nib {
@@ -51,7 +55,7 @@ body {
 }
 
 .nib-dirty {
-  color: #bf616a;
+  color: var(--nib-alert);
   font-size: 12px;
 }
 
@@ -89,8 +93,8 @@ body {
   padding: 0.75rem 1rem;
   border: 1px solid var(--nib-line);
   border-radius: 10px;
-  background: #fff;
-  box-shadow: 0 10px 30px rgba(46, 52, 64, 0.18);
+  background: var(--nib-panel);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
   font-size: 13px;
 }
 
@@ -99,14 +103,15 @@ body {
   padding: 0.35rem 0.7rem;
   border: 1px solid var(--nib-line);
   border-radius: 6px;
-  background: #fff;
+  background: var(--nib-surface);
+  color: var(--nib-ink);
   cursor: pointer;
 }
 
 .nib-confirm button:first-of-type {
   border-color: var(--nib-accent);
   background: var(--nib-accent);
-  color: #fff;
+  color: #1f2430;
 }
 
 /* Crepe draws its own frame; give it a page-like column instead. */
@@ -120,7 +125,7 @@ body {
   padding: 0.2rem 0.55rem;
   border: 1px solid var(--nib-line);
   border-radius: 6px;
-  background: #fff;
+  background: var(--nib-surface);
   color: var(--nib-ink);
   cursor: pointer;
 }
@@ -149,13 +154,14 @@ body {
   font-size: 13px;
   line-height: 1.6;
   color: var(--nib-ink);
-  background: #fbfcfd;
+  background: var(--nib-code);
   tab-size: 2;
 }
 
 .nib-preview {
   min-height: 0;
   overflow-y: auto;
+  background: var(--nib-page);
 }
 
 .nib-preview .milkdown {

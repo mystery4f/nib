@@ -8,7 +8,7 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { save as chooseFile } from "@tauri-apps/plugin-dialog";
 import "@milkdown/crepe/theme/common/style.css";
-import "@milkdown/crepe/theme/classic.css";
+import "@milkdown/crepe/theme/nord-dark.css";
 import "./styles.css";
 
 type Document = { name: string; path: string | null; text: string };
