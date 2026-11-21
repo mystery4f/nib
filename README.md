@@ -1,5 +1,7 @@
 # Nib
 
+[![ci](https://github.com/mystery4f/nib/actions/workflows/ci.yml/badge.svg)](https://github.com/mystery4f/nib/actions/workflows/ci.yml)
+
 A small markdown editor for one job: being pi's `$EDITOR`. It opens the one file
 it is given, edits it rendered — WYSIWYG, the way a word processor does — and on
 exit tells the caller, through its exit code, whether the edit was saved or
@@ -29,6 +31,14 @@ npm run build                    # tsc --noEmit && vite build -> dist/
 cargo build --release --manifest-path src-tauri/Cargo.toml
 cp src-tauri/target/release/nib.exe nib.exe
 ```
+
+### Installer and releases
+
+`npm run tauri build` produces the Windows NSIS installer under
+`src-tauri/target/release/bundle/nsis/`. Pushing a tag `v*` runs
+`.github/workflows/release.yml`, which builds that installer on `windows-latest`
+and attaches it to the matching GitHub release. `.github/workflows/ci.yml` runs
+the build, prettier, rustfmt, clippy and `cargo test` on every push to `main`.
 
 `cargo build --release` on its own is enough: `src-tauri/Cargo.toml` enables
 Tauri's `custom-protocol` feature, so the binary serves the bundled `dist/`
