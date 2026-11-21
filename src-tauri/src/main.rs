@@ -21,7 +21,7 @@ const EXIT_FAILED: i32 = 2;
 /// Every piece of state the window needs: which file, what it last held, and
 /// whether the editor has moved away from that.
 struct OpenDocument {
-    path: PathBuf,
+    path: Option<PathBuf>,
     saved: String,
     dirty: bool,
 }
@@ -31,6 +31,7 @@ struct AppState(Mutex<OpenDocument>);
 #[derive(Serialize)]
 struct DocumentPayload {
     name: String,
+    path: Option<String>,
     text: String,
 }
 
@@ -38,22 +39,33 @@ struct DocumentPayload {
 fn get_document(state: State<AppState>) -> DocumentPayload {
     let doc = state.0.lock().expect("state lock");
     DocumentPayload {
-        name: file_name(&doc.path),
+        name: path_name(doc.path.as_deref()),
+        path: doc.path.as_ref().map(|path| path.display().to_string()),
         text: doc.saved.clone(),
     }
 }
 
 #[tauri::command]
-fn save_document(text: String, state: State<AppState>) -> Result<(), String> {
+fn save_document(
+    app: AppHandle,
+    text: String,
+    path: Option<String>,
+    state: State<AppState>,
+) -> Result<(), String> {
     let mut doc = state.0.lock().expect("state lock");
-    if !doc.dirty {
+    let chosen = path.is_some();
+    let target = target_path(&mut doc, path)?;
+    if !chosen && !doc.dirty {
         // Nothing was edited, so the round-tripped text must not rewrite the
         // file (Milkdown normalises markdown on load).
         return Ok(());
     }
-    write_atomically(&doc.path, &text).map_err(|err| format!("save failed: {err}"))?;
+    write_atomically(&target, &text).map_err(|err| format!("save failed: {err}"))?;
     doc.saved = text;
     doc.dirty = false;
+    let name = path_name(doc.path.as_deref());
+    drop(doc);
+    retitle(&app, &name);
     Ok(())
 }
 
@@ -63,13 +75,20 @@ fn set_dirty(dirty: bool, state: State<AppState>) {
 }
 
 #[tauri::command]
-fn save_and_exit(app: AppHandle, text: String, state: State<AppState>) -> Result<(), String> {
+fn save_and_exit(
+    app: AppHandle,
+    text: String,
+    path: Option<String>,
+    state: State<AppState>,
+) -> Result<(), String> {
     let mut doc = state.0.lock().expect("state lock");
-    if doc.dirty {
-        write_atomically(&doc.path, &text).map_err(|err| format!("save failed: {err}"))?;
-        doc.saved = text;
-        doc.dirty = false;
+    let chosen = path.is_some();
+    let target = target_path(&mut doc, path)?;
+    if doc.dirty || chosen {
+        write_atomically(&target, &text).map_err(|err| format!("save failed: {err}"))?;
     }
+    doc.saved = text;
+    doc.dirty = false;
     drop(doc);
     app.exit(EXIT_ACCEPTED);
     Ok(())
@@ -133,12 +152,14 @@ fn save_pasted_image(name: String, data: String) -> Result<String, String> {
         write_image(&images_dir(), &name, &bytes).map_err(|err| format!("save image: {err}"))?;
     Ok(path.display().to_string())
 }
-/// Rejects anything but exactly one path, then loads it. Once this returns the
-/// window exists, so a failure here has to leave through the exit code.
-fn open_initial(args: &[String]) -> Result<(PathBuf, String), String> {
+/// Reads the path the shell was started with. No path at all is a blank
+/// document — that is how the app is opened from a shortcut — while more than
+/// one path is a mistake. A failure here leaves before the window exists, so it
+/// has to leave through the exit code.
+fn open_initial(args: &[String]) -> Result<(Option<PathBuf>, String), String> {
     let path = match args {
         [one] => PathBuf::from(one),
-        [] => return Err("usage: nib <file.md>".into()),
+        [] => return Ok((None, String::new())),
         more => {
             return Err(format!(
                 "usage: nib <file.md>: got {} arguments",
@@ -148,7 +169,7 @@ fn open_initial(args: &[String]) -> Result<(PathBuf, String), String> {
     };
     let bytes = std::fs::read(&path).map_err(|err| format!("open {}: {err}", path.display()))?;
     let text = String::from_utf8_lossy(&bytes);
-    Ok((path, strip_bom(&text).to_string()))
+    Ok((Some(path), strip_bom(&text).to_string()))
 }
 
 fn strip_bom(text: &str) -> &str {
@@ -159,6 +180,33 @@ fn file_name(path: &Path) -> String {
     path.file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_else(|| path.display().to_string())
+}
+
+/// Untitled documents have no file name yet; the title has to say so rather than
+/// show nothing.
+fn path_name(path: Option<&Path>) -> String {
+    path.map(file_name)
+        .unwrap_or_else(|| "untitled".to_string())
+}
+
+/// Which file a save writes to: the one the page just chose, else the one the
+/// document already belongs to.
+fn target_path(doc: &mut OpenDocument, chosen: Option<String>) -> Result<PathBuf, String> {
+    if let Some(chosen) = chosen {
+        let path = PathBuf::from(chosen);
+        doc.path = Some(path.clone());
+        return Ok(path);
+    }
+    doc.path
+        .clone()
+        .ok_or_else(|| "this document has no file yet: choose a name to save it".to_string())
+}
+
+/// The title names the file, so a save-as has to update it in place.
+fn retitle(app: &AppHandle, name: &str) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.set_title(&format!("nib — {name}"));
+    }
 }
 
 /// Writes beside the target and renames over it, so an interrupted save leaves
@@ -187,9 +235,10 @@ fn main() {
             std::process::exit(EXIT_FAILED);
         }
     };
-    let name = file_name(&path);
+    let name = path_name(path.as_deref());
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(AppState(Mutex::new(OpenDocument {
             path,
             saved: text,
@@ -269,8 +318,14 @@ mod tests {
     }
 
     #[test]
-    fn open_initial_rejects_missing_and_extra_arguments() {
-        assert_eq!(open_initial(&[]), Err("usage: nib <file.md>".into()));
+    fn open_initial_starts_blank_without_arguments() {
+        let (path, text) = open_initial(&[]).expect("no path is a blank document");
+        assert_eq!(path, None);
+        assert_eq!(text, "");
+    }
+
+    #[test]
+    fn open_initial_rejects_extra_arguments() {
         assert_eq!(
             open_initial(&args(&["a.md", "b.md"])),
             Err("usage: nib <file.md>: got 2 arguments".into())
@@ -294,7 +349,7 @@ mod tests {
         let path = scratch.file("bom.md");
         fs::write(&path, "\u{feff}# title\n\nbody\n").expect("write fixture");
         let (opened, text) = open_initial(&[path.display().to_string()]).expect("should open");
-        assert_eq!(opened, path);
+        assert_eq!(opened, Some(path));
         assert_eq!(text, "# title\n\nbody\n");
     }
 
@@ -337,6 +392,37 @@ mod tests {
         assert_eq!(file_name(Path::new(r"C:\docs\note.md")), "note.md");
     }
 
+    #[test]
+    fn path_name_says_untitled_before_a_save_as() {
+        assert_eq!(path_name(None), "untitled");
+        assert_eq!(path_name(Some(Path::new(r"C:\docs\note.md"))), "note.md");
+    }
+
+    #[test]
+    fn target_path_adopts_a_chosen_name_and_remembers_it() {
+        let scratch = ScratchDir::new();
+        let chosen = scratch.file("chosen.md");
+        let mut doc = OpenDocument {
+            path: None,
+            saved: String::new(),
+            dirty: true,
+        };
+        let target = target_path(&mut doc, Some(chosen.display().to_string())).expect("chosen");
+        assert_eq!(target, chosen);
+        assert_eq!(doc.path, Some(chosen.clone()));
+        assert_eq!(target_path(&mut doc, None).expect("remembered"), chosen);
+    }
+
+    #[test]
+    fn target_path_refuses_to_guess_without_a_choice() {
+        let mut doc = OpenDocument {
+            path: None,
+            saved: String::new(),
+            dirty: false,
+        };
+        let error = target_path(&mut doc, None).expect_err("should refuse");
+        assert!(error.contains("no file yet"), "unexpected message: {error}");
+    }
     #[test]
     fn write_image_keeps_the_extension_of_the_source_name() {
         let scratch = ScratchDir::new();

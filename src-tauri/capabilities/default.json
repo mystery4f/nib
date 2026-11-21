@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Nib's own window: the editor needs nothing from the OS beyond its file.",
+  "description": "Nib's own window: the editor needs a file, and a save-as needs the OS dialog.",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "dialog:default"]
 }

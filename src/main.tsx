@@ -6,11 +6,12 @@ import { commandsCtx } from "@milkdown/kit/core";
 import { replaceAll } from "@milkdown/kit/utils";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { save as chooseFile } from "@tauri-apps/plugin-dialog";
 import "@milkdown/crepe/theme/common/style.css";
 import "@milkdown/crepe/theme/classic.css";
 import "./styles.css";
 
-type Document = { name: string; text: string };
+type Document = { name: string; path: string | null; text: string };
 
 /// Two ways to work: the rendered editor where what you type is what you see,
 /// and a split where the markdown source sits beside a read-only rendering.
@@ -106,6 +107,7 @@ function App() {
   const previewTimerRef = useRef<number | null>(null);
   const textRef = useRef("");
   const savedRef = useRef("");
+  const pathRef = useRef<string | null>(null);
   const baselineRef = useRef(false);
   const [doc, setDoc] = useState<Document | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -148,6 +150,7 @@ function App() {
       const loadedDoc = await invoke<Document>("get_document");
       if (disposed) return;
       setDoc(loadedDoc);
+      pathRef.current = loadedDoc.path;
       textRef.current = loadedDoc.text;
       savedRef.current = loadedDoc.text;
       setText(loadedDoc.text);
@@ -255,10 +258,38 @@ function App() {
     setMode("edit");
   }, [currentText, mode]);
 
+  // A document that has never been saved has no path to write to, so the OS
+  // dialog supplies one; `chosen` says whether that just happened, because the
+  // shell must only rewrite a clean file when the name is fresh.
+  const chooseTarget = useCallback(async (): Promise<{
+    path: string;
+    chosen: boolean;
+  } | null> => {
+    if (pathRef.current) return { path: pathRef.current, chosen: false };
+    const picked = await chooseFile({
+      title: "Save markdown",
+      defaultPath: "untitled.md",
+      filters: [{ name: "Markdown", extensions: ["md"] }],
+    });
+    if (!picked) return null;
+    pathRef.current = picked;
+    const name = picked.split(/[\\/]/).pop() || picked;
+    setDoc((prev) => (prev ? { ...prev, name, path: picked } : prev));
+    return { path: picked, chosen: true };
+  }, []);
+
   const save = useCallback(async (): Promise<boolean> => {
     try {
+      const target = await chooseTarget();
+      if (!target) {
+        setNotice("not saved: no file chosen");
+        return false;
+      }
       const text = currentText();
-      await invoke("save_document", { text });
+      await invoke("save_document", {
+        text,
+        path: target.chosen ? target.path : null,
+      });
       savedRef.current = text;
       setDirty(false);
       setNotice("saved");
@@ -267,16 +298,23 @@ function App() {
       setNotice(String(err));
       return false;
     }
-  }, [currentText]);
+  }, [chooseTarget, currentText]);
 
   const saveAndLeave = useCallback(async () => {
     try {
-      await invoke("save_and_exit", { text: currentText() });
+      const target = await chooseTarget();
+      if (!target) {
+        setNotice("not saved: no file chosen");
+        return;
+      }
+      await invoke("save_and_exit", {
+        text: currentText(),
+        path: target.chosen ? target.path : null,
+      });
     } catch (err) {
       setNotice(String(err));
     }
-  }, [currentText]);
-
+  }, [chooseTarget, currentText]);
   const discardAndLeave = useCallback(async () => {
     await invoke("discard_and_exit");
   }, []);

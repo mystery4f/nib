@@ -34,7 +34,10 @@ const binary = resolve(option("binary", join(repo, "nib.exe")));
 
 const source = option("file", join(repo, ".tmp", "sample.md"));
 const phase = option("phase", "edit");
-if (!existsSync(source)) throw new Error(`no such fixture: ${source}`);
+// A run with no file at all is the shortcut case: the shell starts a blank
+// document instead of opening the argument it was given.
+const noFile = args.includes("--no-file");
+if (!noFile && !existsSync(source)) throw new Error(`no such fixture: ${source}`);
 if (!existsSync(binary))
   throw new Error(
     `no binary at ${binary}; run "npm run tauri -- build --no-bundle" first`,
@@ -47,10 +50,10 @@ const digest = async (path) =>
     .digest("hex");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-await copyFile(source, fixture);
-const before = await digest(fixture);
+if (!noFile) await copyFile(source, fixture);
+const before = noFile ? "" : await digest(fixture);
 
-const nib = spawn(binary, [fixture], {
+const nib = spawn(binary, noFile ? [] : [fixture], {
   env: {
     ...process.env,
     WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${PORT}`,
@@ -257,6 +260,27 @@ async function imagePasteProblems() {
   return problems;
 }
 
+async function typeIntoBlankDocument(text) {
+  const point = await evaluate(`(() => {
+    const el = document.querySelector(".ProseMirror");
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { x: r.x + 40, y: r.y + 30 };
+  })()`);
+  if (!point) throw new Error("no editor in the blank document");
+  for (const type of ["mousePressed", "mouseReleased"]) {
+    await send("Input.dispatchMouseEvent", {
+      type,
+      x: Math.round(point.x),
+      y: Math.round(point.y),
+      button: "left",
+      clickCount: 1,
+    });
+  }
+  await sleep(300);
+  await send("Input.insertText", { text });
+  await sleep(400);
+}
 async function confirmDiscard() {
   await pressKey("q", "KeyQ", 81);
   await sleep(700);
@@ -331,6 +355,9 @@ async function run() {
     if (!landed.includes(EDIT))
       domProblems.push("switching back lost the text typed in the source pane");
     await pressKey("Enter", "Enter", 13);
+  } else if (phase === "untitled") {
+    await typeIntoBlankDocument(EDIT);
+    await confirmDiscard();
   } else {
     await typeIntoFirstParagraph(EDIT);
     if (phase === "edit") await pressKey("Enter", "Enter", 13);
@@ -344,8 +371,8 @@ const code = await exited;
 clearTimeout(watchdog);
 socket.close();
 
-const after = await digest(fixture);
-const text = await readFile(fixture, "utf8");
+const after = noFile ? "" : await digest(fixture);
+const text = noFile ? "" : await readFile(fixture, "utf8");
 const problems = [];
 if (phase === "clean" && (code !== 0 || after !== before)) {
   problems.push(
@@ -364,6 +391,8 @@ if (
 }
 if (phase === "edit" && text.includes("<br"))
   problems.push("the save wrote a hard break (<br />)");
+if (phase === "untitled" && code !== 1)
+  problems.push(`a discarded blank document should exit 1, got ${code}`);
 if (phase === "discard" && (code !== 1 || after !== before)) {
   problems.push(
     `discard should leave the file byte-identical: code=${code} changed=${after !== before}`,
@@ -372,7 +401,7 @@ if (phase === "discard" && (code !== 1 || after !== before)) {
 
 problems.push(...domProblems);
 console.log(`phase=${phase} exit=${code} file_changed=${after !== before}`);
-await rm(fixture, { force: true });
+if (!noFile) await rm(fixture, { force: true });
 if (problems.length) {
   for (const problem of problems) console.error(`FAIL ${problem}`);
   process.exit(1);

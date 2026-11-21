@@ -60,6 +60,9 @@ export EDITOR=/path/to/nib.exe     # or set externalEditor in pi's settings
 
 `ctrl+g` in pi's prompt then opens Nib on the prompt's markdown, and pi adopts
 the file only when Nib exits `0`.
+Started with a path, Nib opens that file. Started with no argument at all it
+opens a blank document, and the first save asks the OS for a name — so it also
+works from a shortcut or from the Start menu.
 
 ## Keys
 
